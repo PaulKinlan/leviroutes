@@ -64,11 +64,17 @@ var routes = function() {
     matchRoute(url);
   };
 
+  this.getRoutes = function() {
+    return routes;
+  };
+
   var attach = function() {
     window.addEventListener("popstate", function(e) {
       matchRoute(document.location); 
     });
   };
+
+
 
   attach();
 };
