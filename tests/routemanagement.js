@@ -14,8 +14,8 @@ describe("route management", function() {
   });
 
   it("should have two routes", function() {
-   r.get("/index.html", function() {});
-   r.get("/", function() { });
-   expect(r.getRoutes().length).toEqual(2);
+    r.get("/index.html", function() {});
+    r.get("/", function() { });
+    expect(r.getRoutes().length).toEqual(2);
   });
 });
