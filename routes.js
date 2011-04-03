@@ -69,12 +69,35 @@ var routes = function() {
   };
 
   var attach = function() {
+    var triggered = false;
+    var cancelHashChange = false;
+    var cancelPopstate = false;
     window.addEventListener("popstate", function(e) {
-      matchRoute(document.location); 
-    });
+      if(cancelPopstate) {
+        cancelPopstate = false;
+        return;
+      }
+
+      matchRoute(document.location);
+      // popstate fires before a hash change, don't fire twice.
+      cancelHashChange = true;
+
+    }, false);
+
+    window.addEventListener("load", function(e) {
+      matchRoute(document.location);
+      cancelHashChange = true;
+      cancelPopstate = true;
+    }, false);
+
+    window.addEventListener("hashchange", function(e) {
+      if(cancelHashChange) {
+        cancelHashChange = false;
+        return;
+      }
+      matchRoute(document.location);
+    }, false);
   };
-
-
 
   attach();
 };
