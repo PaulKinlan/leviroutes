@@ -78,14 +78,14 @@ var routes = function() {
         return;
       }
 
-      matchRoute(document.location);
+      matchRoute(document.location.pathname);
       // popstate fires before a hash change, don't fire twice.
       cancelHashChange = true;
 
     }, false);
 
     window.addEventListener("load", function(e) {
-      matchRoute(document.location);
+      matchRoute(document.location.pathname);
       cancelHashChange = true;
       cancelPopstate = true;
     }, false);
@@ -95,7 +95,7 @@ var routes = function() {
         cancelHashChange = false;
         return;
       }
-      matchRoute(document.location);
+      matchRoute(document.location.pathname);
     }, false);
   };
 
