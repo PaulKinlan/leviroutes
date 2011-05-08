@@ -72,20 +72,32 @@ var routes = function() {
     var triggered = false;
     var cancelHashChange = false;
     var cancelPopstate = false;
+
+    this.run = function() {
+      if(!triggered) {
+        matchRoute(document.location.pathname);
+        triggered = true;
+      }
+    };
+
     window.addEventListener("popstate", function(e) {
       if(cancelPopstate) {
         cancelPopstate = false;
+        cancelHashChange = false;
         return;
       }
 
       matchRoute(document.location.pathname);
       // popstate fires before a hash change, don't fire twice.
       cancelHashChange = true;
-
     }, false);
 
     window.addEventListener("load", function(e) {
-      matchRoute(document.location.pathname);
+      if(!triggered) {
+        matchRoute(document.location.pathname);
+        triggered = true;
+      }
+
       cancelHashChange = true;
       cancelPopstate = true;
     }, false);
@@ -93,6 +105,7 @@ var routes = function() {
     window.addEventListener("hashchange", function(e) {
       if(cancelHashChange) {
         cancelHashChange = false;
+        cancelPopstate = false;
         return;
       }
       matchRoute(document.location.pathname);
