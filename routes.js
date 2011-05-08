@@ -15,7 +15,8 @@
 */
 
 var routes = function() {
-  var routes = [];
+  var _routes = [];
+  var me = this;
 
   this.parseRoute = function(path) {
     this.parseGroups = function(loc) {
@@ -41,7 +42,7 @@ var routes = function() {
 
   var matchRoute = function(url) {
     var route = null;
-    for(var i = 0; route = routes[i]; i ++) {
+    for(var i = 0; route = _routes[i]; i ++) {
       var routeMatch = route.regex.regexp.exec(url);
       if(!!routeMatch == false) continue;
       
@@ -57,7 +58,7 @@ var routes = function() {
   };
 
   this.get = function(route, callback) {
-    routes.push({regex: this.parseRoute(route), "callback": callback});
+    _routes.push({regex: this.parseRoute(route), "callback": callback});
   };
 
   this.test = function(url) {
@@ -65,7 +66,7 @@ var routes = function() {
   };
 
   this.getRoutes = function() {
-    return routes;
+    return _routes;
   };
 
   var attach = function() {
@@ -73,7 +74,7 @@ var routes = function() {
     var cancelHashChange = false;
     var cancelPopstate = false;
 
-    this.run = function() {
+    me.run = function() {
       if(!triggered) {
         matchRoute(document.location.pathname);
         triggered = true;
