@@ -40,7 +40,7 @@ var routes = function() {
     return this.parseGroups(path); 
   };
 
-  var matchRoute = function(url) {
+  var matchRoute = function(url, e) {
     var route = null;
     for(var i = 0; route = _routes[i]; i ++) {
       var routeMatch = route.regex.regexp.exec(url);
@@ -52,13 +52,19 @@ var routes = function() {
         params[g] = routeMatch[group + 1];
       }
       
-      route.callback({"url": url, "params": params});
-      return;
+      route.callback({"url": url, "params": params, "e": e});
+      return true;
     }
+
+    return false;
   };
 
   this.get = function(route, callback) {
-    _routes.push({regex: this.parseRoute(route), "callback": callback});
+    _routes.push({regex: this.parseRoute(route), "callback": callback, method: "get"});
+  };
+
+  this.post = function(route, callback) {
+    _routes.push({regex: this.parseRoute(route), "callback": callback, method: "post"});
   };
 
   this.test = function(url) {
@@ -80,6 +86,18 @@ var routes = function() {
         triggered = true;
       }
     };
+
+    // Intercept FORM submissions.
+    window.addEventListener("submit", function(e) {
+      if(e.target.method == "post") {
+        if (matchRoute(e.target.action, e)) {
+           e.preventDefault();
+           return false;
+        }
+      }
+      // If we haven't matched a URL let the normal request happen. 
+      return true;
+    });
 
     window.addEventListener("popstate", function(e) {
       if(cancelPopstate) {
