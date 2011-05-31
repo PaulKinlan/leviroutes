@@ -1,0 +1,45 @@
+<!doctype>
+<html>
+  <head>
+    <title>Get - Example 1 (Page 2)</title>
+    <script src="../../../routes.js"></script>
+    <script>
+      var app = new routes();
+
+      app.get('page2.html', function() {
+        alert('On page 2');
+      });
+      
+      app.get('example.html', function() {
+        alert('On example');
+      });
+
+      window.addEventListener("DOMContentLoaded", function() {
+        var anchor = document.getElementById("examplePageLink");
+        anchor.addEventListener("click", function(e) {
+          e.preventDefault();
+
+          window.history.pushState(undefined, 'Get - Example', 'example.html');
+
+          return false;
+        });
+
+      });
+    </script>
+  </head>
+
+  <body>
+    <p>This is an example of HTML5 History and LeviRoutes</p>
+    <p>Navigate to page2, you will see the event doesn't fire.  This is ok, because you are overriding the click event so you can handle it there.  Now click on the navigation buttons forwards and backwards and watch the event fire.</p>
+    <pre><code>var app = new routes();
+
+app.get('page2.html', function() {
+  alert('On page 2');
+});
+      
+app.get('example.html', function() {
+  alert('On example');
+}); </code></pre>
+    <a href="example.html" id="examplePageLink">Go to example.html</a>
+  </body>
+</html>
