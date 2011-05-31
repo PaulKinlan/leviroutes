@@ -51,8 +51,18 @@ var routes = function() {
         var group = route.regex.groups[g];
         params[g] = routeMatch[group + 1];
       }
+
+      var values = {};
+      if(e.target instanceof HTMLFormElement) {
+        var form = e.target;
+        var items = form.length;
+        var item;
+        for(var j = 0; item = form[j]; j++) {
+          if(!!item.name) values[item.name] = item.value;
+        }
+      }
       
-      route.callback({"url": url, "params": params, "e": e});
+      route.callback({"url": url, "params": params, "values" : values, "e": e});
       return true;
     }
 
