@@ -90,6 +90,24 @@ var routes = function() {
     var cancelHashChange = false;
     var cancelPopstate = false;
 
+    // Add a new event to HTML5 History
+    if(!!window.history && !!window.history.pushState) {
+      
+      var pushStateProxy = history.__proto__.pushState;
+
+      history.__proto__.pushState = function(state, title, url) {
+        pushStateProxy.apply(history, arguments);
+
+        //var evt = document.createEvent("PopStateEvent");
+        //evt.initPopStateEvent("statechange", false, false, state);
+        var evt = document.createEvent("Event");
+        evt.initEvent("statechanged",false, false);
+        evt.state = state;
+        window.dispatchEvent(evt);
+        return;
+      };
+    }
+
     me.run = function() {
       if(!triggered) {
         matchRoute(document.location.pathname);
