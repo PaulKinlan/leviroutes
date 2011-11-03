@@ -53,7 +53,7 @@ var routes = function() {
       }
 
       var values = {};
-      if(e.target instanceof HTMLFormElement) {
+      if(e && e.target instanceof HTMLFormElement) {
         var form = e.target;
         var items = form.length;
         var item;
