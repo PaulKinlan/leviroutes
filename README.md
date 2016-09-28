@@ -19,7 +19,7 @@ It also named parameters for route syntax
       alert("format: " + req.params.format);
     });
 
-LeviRoutes can also intercept POST requests via forms, the framework will intercept all submits, and naturally let through requests that don't match the path, whilst firing your callback if there is a mathc
+LeviRoutes can also intercept POST requests via forms, the framework will intercept all submits, and naturally let through requests that don't match the path, whilst firing your callback if there is a match
 
     app.post("/:category", function(req) {
       alert("posting form: In Category ", req.params.category);
