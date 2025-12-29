@@ -16,6 +16,7 @@
 
 var routes = function() {
   var _routes = [];
+  var _middleware = [];
   var me = this;
 
   this.parseRoute = function(path) {
@@ -40,6 +41,10 @@ var routes = function() {
     return this.parseGroups(path); 
   };
 
+  this.use = function(middleware) {
+    _middleware.push(middleware);
+  };
+
   var matchRoute = function(url, e) {
     var route = null;
     for(var i = 0; route = _routes[i]; i ++) {
@@ -62,7 +67,23 @@ var routes = function() {
         }
       }
       
-      route.callback({"url": url, "params": params, "values" : values, "e": e});
+      var req = {"url": url, "params": params, "values" : values, "e": e};
+      
+      // Execute middleware chain
+      var middlewareIndex = 0;
+      var next = function() {
+        if (middlewareIndex < _middleware.length) {
+          var middleware = _middleware[middlewareIndex++];
+          middleware(req, next);
+        } else {
+          // All middleware executed, call the route callback
+          route.callback(req);
+        }
+      };
+      
+      // Start middleware execution
+      next();
+      
       return true;
     }
 

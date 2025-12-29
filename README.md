@@ -26,3 +26,23 @@ LeviRoutes can also intercept POST requests via forms, intercept all submits, an
     app.post("/:category", function(req) {
       alert("posting form: In Category " + req.params.category);
     });
+
+## Middleware Support
+
+LeviRoutes supports middleware functions that execute before route handlers. Middleware functions receive the request object and a `next` callback.
+
+    app.use(function(req, next) {
+      console.log("Request to: " + req.url);
+      next(); // Call next to continue to the next middleware or route handler
+    });
+
+    app.use(function(req, next) {
+      req.timestamp = Date.now();
+      next();
+    });
+
+    app.get("/", function(req) {
+      alert("Request timestamp: " + req.timestamp);
+    });
+
+Middleware functions are executed in the order they are registered, before any route handler is called.
