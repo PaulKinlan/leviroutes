@@ -1,6 +1,8 @@
 LeviRoutes
 ==========
 
+> **⚠️ DISCLAIMER:** This project has not been updated or maintained for a long time. While I might add more features in the future, please do not rely on this project for production use or active development.
+
 A simple lightweight routes framework for hooking in to HTML5 history.  Currently when the system pop's state the route is triggered if matched.
 
     var app = new routes();
