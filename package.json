@@ -1,0 +1,51 @@
+{
+  "name": "leviroutes",
+  "version": "1.0.0",
+  "description": "A simple lightweight routes framework for hooking in to HTML5 history",
+  "type": "module",
+  "main": "./src/routes.js",
+  "module": "./src/routes.js",
+  "browser": "./dist/routes.min.js",
+  "exports": {
+    ".": {
+      "import": "./src/routes.js",
+      "browser": "./dist/routes.min.js"
+    }
+  },
+  "scripts": {
+    "test": "jasmine",
+    "build": "npm run build:min",
+    "build:min": "terser src/routes.js -o dist/routes.min.js -c -m --comments false",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "router",
+    "routes",
+    "html5",
+    "history",
+    "pushstate",
+    "spa",
+    "single-page-application"
+  ],
+  "author": "Paul Kinlan",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PaulKinlan/leviroutes.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PaulKinlan/leviroutes/issues"
+  },
+  "homepage": "https://github.com/PaulKinlan/leviroutes#readme",
+  "devDependencies": {
+    "jasmine": "^5.1.0",
+    "jsdom": "^23.0.0",
+    "terser": "^5.27.0"
+  },
+  "files": [
+    "src/",
+    "dist/",
+    "README.md",
+    "LICENCE"
+  ]
+}
