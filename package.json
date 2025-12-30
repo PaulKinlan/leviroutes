@@ -31,7 +31,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/PaulKinlan/leviroutes.git"
+    "url": "git+https://github.com/PaulKinlan/leviroutes.git"
   },
   "bugs": {
     "url": "https://github.com/PaulKinlan/leviroutes/issues"
