@@ -14,7 +14,7 @@
  limitations under the License.
 */
 
-var routes = function() {
+const routes = function() {
   var _routes = [];
   var _middleware = [];
   var me = this;
@@ -107,6 +107,11 @@ var routes = function() {
   };
 
   var attach = function() {
+    // Only attach browser-specific event handlers if in a browser environment
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      return;
+    }
+
     var triggered = false;
     var cancelHashChange = false;
     var cancelPopstate = false;
@@ -182,3 +187,5 @@ var routes = function() {
 
   attach();
 };
+
+export default routes;

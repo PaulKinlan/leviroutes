@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>LeviRoutes Middleware Example</title>
+  <script src="../../routes.js"></script>
+</head>
+<body>
+  <h1>LeviRoutes Middleware Example</h1>
+  
+  <div id="output"></div>
+  
+  <script>
+    var app = new routes();
+    var output = document.getElementById('output');
+    
+    function log(message) {
+      var div = document.createElement('div');
+      div.textContent = message;
+      output.appendChild(div);
+    }
+    
+    // First middleware: logging
+    app.use(function(req, next) {
+      log('Middleware 1: Logging request to ' + req.url);
+      next();
+    });
+    
+    // Second middleware: add timestamp
+    app.use(function(req, next) {
+      req.timestamp = new Date().toISOString();
+      log('Middleware 2: Added timestamp ' + req.timestamp);
+      next();
+    });
+    
+    // Third middleware: add custom data
+    app.use(function(req, next) {
+      req.customData = 'Processed by middleware';
+      log('Middleware 3: Added custom data');
+      next();
+    });
+    
+    // Route handler
+    app.get("/", function(req) {
+      log('Route Handler: Executing route for ' + req.url);
+      log('Route Handler: Timestamp = ' + req.timestamp);
+      log('Route Handler: Custom Data = ' + req.customData);
+    });
+    
+    // Trigger the route
+    log('--- Starting route execution ---');
+    app.test('/');
+    log('--- Route execution complete ---');
+  </script>
+</body>
+</html>
