@@ -40,7 +40,8 @@
   "devDependencies": {
     "jasmine": "^5.1.0",
     "jsdom": "^23.0.0",
-    "terser": "^5.27.0"
+    "terser": "^5.27.0",
+    "urlpattern-polyfill": "^10.1.0"
   },
   "files": [
     "src/",
