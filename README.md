@@ -109,6 +109,18 @@ app.get("/", function(req) {
 
 Middleware functions are executed in the order they are registered, before any route handler is called.
 
+## Examples
+
+Check out the [examples](examples/) directory for complete working examples demonstrating:
+
+- **GET Routes**: Basic routing with HTML5 History API
+- **POST Routes**: Form interception and handling
+- **Middleware**: Multiple middleware functions with request processing
+- **Named Parameters**: Dynamic route parameters (e.g., `/user/:id`)
+- **Complete SPA**: A full single-page application showcasing all features
+
+To run the examples, start a local web server in the project root and navigate to the examples directory.
+
 ## Development
 
 ### Running Tests
