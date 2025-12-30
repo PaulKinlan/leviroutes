@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LeviRoutes - Named Parameters Example</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    h1 { color: #333; }
+    .navigation {
+      background: #f4f4f4;
+      padding: 15px;
+      border-radius: 5px;
+      margin-bottom: 20px;
+    }
+    .navigation a {
+      display: inline-block;
+      margin: 5px 10px 5px 0;
+      padding: 8px 15px;
+      background: #007bff;
+      color: white;
+      text-decoration: none;
+      border-radius: 3px;
+    }
+    .navigation a:hover {
+      background: #0056b3;
+    }
+    #output {
+      background: #fff;
+      border: 1px solid #ddd;
+      padding: 15px;
+      border-radius: 5px;
+      min-height: 100px;
+    }
+    .log-entry {
+      padding: 5px 0;
+      border-bottom: 1px solid #eee;
+    }
+    .log-entry:last-child {
+      border-bottom: none;
+    }
+    .params {
+      background: #e7f3ff;
+      padding: 10px;
+      border-radius: 3px;
+      margin-top: 10px;
+      font-family: monospace;
+    }
+    code {
+      background: #f4f4f4;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+  <h1>LeviRoutes - Named Parameters Example</h1>
+  
+  <p>This example demonstrates how to use named parameters in routes. Click the links below to navigate and see how parameters are extracted.</p>
+
+  <div class="navigation">
+    <h3>Navigation:</h3>
+    <a href="#" id="link-home">Home</a>
+    <a href="#" id="link-user1">User: alice</a>
+    <a href="#" id="link-user2">User: bob</a>
+    <a href="#" id="link-post1">Post: hello-world</a>
+    <a href="#" id="link-post2">Post: tutorial</a>
+    <a href="#" id="link-cat-json">Category: news (JSON)</a>
+    <a href="#" id="link-cat-xml">Category: blog (XML)</a>
+    <a href="#" id="link-nested">User alice, Post 123</a>
+  </div>
+
+  <div id="output">
+    <p><em>Click a link above to see routing in action...</em></p>
+  </div>
+
+  <h2>Code Example</h2>
+  <pre><code>// Named parameters are defined with a colon
+app.get("/user/:username", function(req) {
+  console.log("Username:", req.params.username);
+});
+
+// Multiple parameters
+app.get("/user/:username/post/:postId", function(req) {
+  console.log("User:", req.params.username);
+  console.log("Post ID:", req.params.postId);
+});
+
+// Parameters with format
+app.get("/:category.:format", function(req) {
+  console.log("Category:", req.params.category);
+  console.log("Format:", req.params.format);
+});</code></pre>
+
+  <script type="module">
+    import routes from '../../../src/routes.js';
+    
+    const app = new routes();
+    const output = document.getElementById('output');
+    
+    function clearOutput() {
+      output.innerHTML = '';
+    }
+    
+    function log(message, isTitle = false) {
+      const div = document.createElement('div');
+      div.className = 'log-entry';
+      if (isTitle) {
+        const title = document.createElement('h3');
+        title.textContent = message;
+        title.style.marginTop = '0';
+        div.appendChild(title);
+      } else {
+        div.textContent = message;
+      }
+      output.appendChild(div);
+    }
+    
+    function showParams(params) {
+      const div = document.createElement('div');
+      div.className = 'params';
+      div.innerHTML = '<strong>Extracted Parameters:</strong><br>' + 
+        JSON.stringify(params, null, 2);
+      output.appendChild(div);
+    }
+    
+    // Route 1: Home page
+    app.get("/", function(req) {
+      clearOutput();
+      log("Home Route", true);
+      log("URL: " + req.url);
+      log("This is the home page with no parameters.");
+    });
+    
+    // Route 2: User profile with username parameter
+    app.get("/user/:username", function(req) {
+      clearOutput();
+      log("User Profile Route", true);
+      log("URL: " + req.url);
+      log("Viewing profile for user: " + req.params.username);
+      showParams(req.params);
+    });
+    
+    // Route 3: Blog post with postId parameter
+    app.get("/post/:postId", function(req) {
+      clearOutput();
+      log("Blog Post Route", true);
+      log("URL: " + req.url);
+      log("Displaying post: " + req.params.postId);
+      showParams(req.params);
+    });
+    
+    // Route 4: Category with format (e.g., news.json, blog.xml)
+    app.get("/:category.:format", function(req) {
+      clearOutput();
+      log("Category with Format Route", true);
+      log("URL: " + req.url);
+      log("Category: " + req.params.category);
+      log("Format: " + req.params.format);
+      log("This could return data in " + req.params.format.toUpperCase() + " format");
+      showParams(req.params);
+    });
+    
+    // Route 5: Nested parameters - user posts
+    app.get("/user/:username/post/:postId", function(req) {
+      clearOutput();
+      log("Nested Parameters Route", true);
+      log("URL: " + req.url);
+      log("Viewing post '" + req.params.postId + "' by user '" + req.params.username + "'");
+      showParams(req.params);
+    });
+    
+    // Set up click handlers for navigation
+    document.getElementById('link-home').addEventListener('click', function(e) {
+      e.preventDefault();
+      history.pushState(null, 'Home', '/');
+    });
+    
+    document.getElementById('link-user1').addEventListener('click', function(e) {
+      e.preventDefault();
+      history.pushState(null, 'User: alice', '/user/alice');
+    });
+    
+    document.getElementById('link-user2').addEventListener('click', function(e) {
+      e.preventDefault();
+      history.pushState(null, 'User: bob', '/user/bob');
+    });
+    
+    document.getElementById('link-post1').addEventListener('click', function(e) {
+      e.preventDefault();
+      history.pushState(null, 'Post: hello-world', '/post/hello-world');
+    });
+    
+    document.getElementById('link-post2').addEventListener('click', function(e) {
+      e.preventDefault();
+      history.pushState(null, 'Post: tutorial', '/post/tutorial');
+    });
+    
+    document.getElementById('link-cat-json').addEventListener('click', function(e) {
+      e.preventDefault();
+      history.pushState(null, 'Category: news (JSON)', '/news.json');
+    });
+    
+    document.getElementById('link-cat-xml').addEventListener('click', function(e) {
+      e.preventDefault();
+      history.pushState(null, 'Category: blog (XML)', '/blog.xml');
+    });
+    
+    document.getElementById('link-nested').addEventListener('click', function(e) {
+      e.preventDefault();
+      history.pushState(null, 'User alice, Post 123', '/user/alice/post/123');
+    });
+    
+    // Run initial route on page load
+    app.run();
+  </script>
+</body>
+</html>

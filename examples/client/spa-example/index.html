@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LeviRoutes - Complete SPA Example</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      line-height: 1.6;
+      color: #333;
+    }
+    
+    nav {
+      background: #2c3e50;
+      color: white;
+      padding: 1rem 0;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    
+    nav .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    nav h1 {
+      font-size: 1.5rem;
+    }
+    
+    nav ul {
+      list-style: none;
+      display: flex;
+      gap: 20px;
+    }
+    
+    nav a {
+      color: white;
+      text-decoration: none;
+      padding: 8px 15px;
+      border-radius: 4px;
+      transition: background 0.3s;
+    }
+    
+    nav a:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+    
+    nav a.active {
+      background: #3498db;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 40px 20px;
+    }
+    
+    .page {
+      animation: fadeIn 0.3s;
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .card {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    
+    .card h2 {
+      color: #2c3e50;
+      margin-bottom: 15px;
+    }
+    
+    .user-card {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+      padding: 15px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      margin-bottom: 15px;
+    }
+    
+    .user-avatar {
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 24px;
+      font-weight: bold;
+    }
+    
+    .user-info h3 {
+      margin-bottom: 5px;
+    }
+    
+    .user-info p {
+      color: #666;
+    }
+    
+    button, .btn {
+      background: #3498db;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
+      transition: background 0.3s;
+    }
+    
+    button:hover, .btn:hover {
+      background: #2980b9;
+    }
+    
+    input[type="text"], input[type="email"], textarea {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      margin-bottom: 15px;
+      font-family: inherit;
+    }
+    
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+      color: #555;
+    }
+    
+    .error {
+      background: #e74c3c;
+      color: white;
+      padding: 15px;
+      border-radius: 4px;
+      margin-bottom: 20px;
+    }
+    
+    .success {
+      background: #2ecc71;
+      color: white;
+      padding: 15px;
+      border-radius: 4px;
+      margin-bottom: 20px;
+    }
+    
+    .blog-post {
+      margin-bottom: 30px;
+      padding-bottom: 30px;
+      border-bottom: 1px solid #eee;
+    }
+    
+    .blog-post:last-child {
+      border-bottom: none;
+    }
+    
+    .blog-post h3 {
+      color: #2c3e50;
+      margin-bottom: 10px;
+    }
+    
+    .blog-post .meta {
+      color: #666;
+      font-size: 0.9rem;
+      margin-bottom: 15px;
+    }
+    
+    .breadcrumb {
+      margin-bottom: 20px;
+      color: #666;
+    }
+    
+    .breadcrumb a {
+      color: #3498db;
+      text-decoration: none;
+    }
+    
+    footer {
+      background: #34495e;
+      color: white;
+      text-align: center;
+      padding: 20px;
+      margin-top: 40px;
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="container">
+      <h1>My SPA</h1>
+      <ul>
+        <li><a href="/" id="nav-home">Home</a></li>
+        <li><a href="/about" id="nav-about">About</a></li>
+        <li><a href="/blog" id="nav-blog">Blog</a></li>
+        <li><a href="/users" id="nav-users">Users</a></li>
+        <li><a href="/contact" id="nav-contact">Contact</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <div id="app" class="container">
+    <!-- Page content will be rendered here -->
+  </div>
+
+  <footer>
+    <p>&copy; 2024 LeviRoutes SPA Example. Built with LeviRoutes.</p>
+  </footer>
+
+  <script type="module">
+    import routes from '../../../src/routes.js';
+    
+    const app = new routes();
+    const appContainer = document.getElementById('app');
+    
+    // Sample data
+    const users = [
+      { id: 1, name: 'Alice Johnson', email: 'alice@example.com', role: 'Developer' },
+      { id: 2, name: 'Bob Smith', email: 'bob@example.com', role: 'Designer' },
+      { id: 3, name: 'Charlie Brown', email: 'charlie@example.com', role: 'Manager' }
+    ];
+    
+    const blogPosts = [
+      { id: 1, title: 'Getting Started with LeviRoutes', author: 'Alice', date: '2024-01-15', content: 'Learn how to build single-page applications with LeviRoutes...' },
+      { id: 2, title: 'Advanced Routing Techniques', author: 'Bob', date: '2024-02-20', content: 'Discover advanced patterns for routing in your web apps...' },
+      { id: 3, title: 'Middleware Magic', author: 'Alice', date: '2024-03-10', content: 'Middleware functions can transform your application architecture...' }
+    ];
+    
+    // Helper function to render content
+    function render(html) {
+      appContainer.innerHTML = `<div class="page">${html}</div>`;
+    }
+    
+    // Helper to update active nav link
+    function updateNav(path) {
+      document.querySelectorAll('nav a').forEach(link => {
+        link.classList.remove('active');
+        if (link.getAttribute('href') === path) {
+          link.classList.add('active');
+        }
+      });
+    }
+    
+    // Middleware: Logging
+    app.use(function(req, next) {
+      console.log(`[${new Date().toISOString()}] Navigating to: ${req.url}`);
+      next();
+    });
+    
+    // Middleware: Update navigation
+    app.use(function(req, next) {
+      updateNav(req.url);
+      next();
+    });
+    
+    // Route: Home page
+    app.get("/", function(req) {
+      render(`
+        <div class="card">
+          <h2>Welcome to LeviRoutes SPA Example</h2>
+          <p>This is a complete single-page application demonstrating all features of LeviRoutes:</p>
+          <ul style="margin-left: 20px; margin-top: 15px;">
+            <li>✓ Client-side routing with named parameters</li>
+            <li>✓ Middleware support</li>
+            <li>✓ Dynamic content rendering</li>
+            <li>✓ HTML5 History API integration</li>
+            <li>✓ Form handling with POST routes</li>
+          </ul>
+          <p style="margin-top: 20px;">Navigate using the menu above to explore different sections.</p>
+        </div>
+        
+        <div class="card">
+          <h2>Quick Links</h2>
+          <a href="/about" class="btn" style="margin-right: 10px;">Learn More</a>
+          <a href="/blog" class="btn" style="margin-right: 10px;">Read Blog</a>
+          <a href="/users" class="btn">View Users</a>
+        </div>
+      `);
+    });
+    
+    // Route: About page
+    app.get("/about", function(req) {
+      render(`
+        <div class="card">
+          <h2>About This Application</h2>
+          <p>This single-page application (SPA) is built using LeviRoutes, a lightweight routing framework for HTML5 History API.</p>
+          
+          <h3 style="margin-top: 25px;">Features Demonstrated:</h3>
+          <ul style="margin-left: 20px; margin-top: 10px;">
+            <li>Multiple route definitions with GET and POST methods</li>
+            <li>Named parameters extraction (e.g., /user/:id)</li>
+            <li>Middleware chain execution</li>
+            <li>Dynamic content rendering without page reloads</li>
+            <li>Navigation state management</li>
+            <li>Form interception and handling</li>
+          </ul>
+          
+          <h3 style="margin-top: 25px;">Technology Stack:</h3>
+          <ul style="margin-left: 20px; margin-top: 10px;">
+            <li>LeviRoutes for routing</li>
+            <li>Vanilla JavaScript (ES6+ modules)</li>
+            <li>HTML5 History API</li>
+            <li>CSS3 for styling</li>
+          </ul>
+        </div>
+      `);
+    });
+    
+    // Route: Blog listing
+    app.get("/blog", function(req) {
+      const postsHtml = blogPosts.map(post => `
+        <div class="blog-post">
+          <h3><a href="/blog/${post.id}" style="color: #2c3e50; text-decoration: none;">${post.title}</a></h3>
+          <div class="meta">By ${post.author} on ${post.date}</div>
+          <p>${post.content}</p>
+          <a href="/blog/${post.id}" class="btn">Read More →</a>
+        </div>
+      `).join('');
+      
+      render(`
+        <div class="card">
+          <h2>Blog Posts</h2>
+          <p>Explore our latest articles about web development and routing.</p>
+        </div>
+        ${postsHtml}
+      `);
+    });
+    
+    // Route: Single blog post
+    app.get("/blog/:postId", function(req) {
+      const postId = parseInt(req.params.postId);
+      const post = blogPosts.find(p => p.id === postId);
+      
+      if (!post) {
+        render(`
+          <div class="error">
+            <h2>Post Not Found</h2>
+            <p>The blog post you're looking for doesn't exist.</p>
+            <a href="/blog" class="btn" style="background: white; color: #e74c3c; margin-top: 10px;">← Back to Blog</a>
+          </div>
+        `);
+        return;
+      }
+      
+      render(`
+        <div class="breadcrumb">
+          <a href="/">Home</a> / <a href="/blog">Blog</a> / ${post.title}
+        </div>
+        
+        <div class="card">
+          <h2>${post.title}</h2>
+          <div class="meta">By ${post.author} on ${post.date}</div>
+          <p style="margin-top: 20px;">${post.content}</p>
+          <p style="margin-top: 20px;">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.</p>
+          <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+          <a href="/blog" class="btn" style="margin-top: 20px;">← Back to Blog</a>
+        </div>
+      `);
+    });
+    
+    // Route: Users listing
+    app.get("/users", function(req) {
+      const usersHtml = users.map(user => `
+        <div class="user-card">
+          <div class="user-avatar">${user.name.charAt(0)}</div>
+          <div class="user-info">
+            <h3>${user.name}</h3>
+            <p>${user.role} • ${user.email}</p>
+          </div>
+          <a href="/user/${user.id}" class="btn">View Profile</a>
+        </div>
+      `).join('');
+      
+      render(`
+        <div class="card">
+          <h2>Team Members</h2>
+          <p>Meet our amazing team of professionals.</p>
+        </div>
+        ${usersHtml}
+      `);
+    });
+    
+    // Route: Single user profile
+    app.get("/user/:userId", function(req) {
+      const userId = parseInt(req.params.userId);
+      const user = users.find(u => u.id === userId);
+      
+      if (!user) {
+        render(`
+          <div class="error">
+            <h2>User Not Found</h2>
+            <p>The user profile you're looking for doesn't exist.</p>
+            <a href="/users" class="btn" style="background: white; color: #e74c3c; margin-top: 10px;">← Back to Users</a>
+          </div>
+        `);
+        return;
+      }
+      
+      render(`
+        <div class="breadcrumb">
+          <a href="/">Home</a> / <a href="/users">Users</a> / ${user.name}
+        </div>
+        
+        <div class="card">
+          <div style="display: flex; gap: 30px; align-items: center;">
+            <div class="user-avatar" style="width: 100px; height: 100px; font-size: 48px;">${user.name.charAt(0)}</div>
+            <div>
+              <h2 style="margin-bottom: 10px;">${user.name}</h2>
+              <p style="color: #666; margin-bottom: 5px;"><strong>Role:</strong> ${user.role}</p>
+              <p style="color: #666;"><strong>Email:</strong> ${user.email}</p>
+            </div>
+          </div>
+          
+          <h3 style="margin-top: 30px;">About</h3>
+          <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Experienced ${user.role.toLowerCase()} with a passion for creating amazing web experiences.</p>
+          
+          <a href="/users" class="btn" style="margin-top: 20px;">← Back to Team</a>
+        </div>
+      `);
+    });
+    
+    // Route: Contact page
+    app.get("/contact", function(req) {
+      render(`
+        <div class="card">
+          <h2>Contact Us</h2>
+          <p>Have a question? Send us a message!</p>
+          
+          <form action="/contact" method="post" style="margin-top: 20px;">
+            <label>Name</label>
+            <input type="text" name="name" placeholder="Your name" required>
+            
+            <label>Email</label>
+            <input type="email" name="email" placeholder="your@email.com" required>
+            
+            <label>Message</label>
+            <textarea name="message" rows="5" placeholder="Your message..." required></textarea>
+            
+            <button type="submit">Send Message</button>
+          </form>
+        </div>
+      `);
+    });
+    
+    // Route: Contact form submission (POST)
+    app.post("/contact", function(req) {
+      const name = req.values.name;
+      const email = req.values.email;
+      const message = req.values.message;
+      
+      render(`
+        <div class="success">
+          <h2>✓ Message Sent!</h2>
+          <p>Thank you for contacting us, ${name}. We'll get back to you at ${email} soon.</p>
+        </div>
+        
+        <div class="card">
+          <h3>Your Message:</h3>
+          <p style="margin-top: 10px; padding: 15px; background: #f9f9f9; border-radius: 4px;">${message}</p>
+          <a href="/contact" class="btn" style="margin-top: 20px;">Send Another Message</a>
+        </div>
+      `);
+    });
+    
+    // Set up navigation link handlers
+    document.querySelectorAll('nav a').forEach(link => {
+      link.addEventListener('click', function(e) {
+        e.preventDefault();
+        const url = this.getAttribute('href');
+        history.pushState(null, '', url);
+      });
+    });
+    
+    // Handle dynamic links in rendered content
+    appContainer.addEventListener('click', function(e) {
+      if (e.target.tagName === 'A' && e.target.getAttribute('href').startsWith('/')) {
+        e.preventDefault();
+        const url = e.target.getAttribute('href');
+        history.pushState(null, '', url);
+      }
+    });
+    
+    // Run the initial route
+    app.run();
+  </script>
+</body>
+</html>
