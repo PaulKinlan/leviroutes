@@ -25,7 +25,7 @@ npx http-server -p 8000
 php -S localhost:8000
 ```
 
-Then navigate to `http://localhost:8000/examples/client/` and open any of the example HTML files.
+Then navigate to `http://localhost:8000/examples/` in your browser to see the examples index, or directly access any example HTML file.
 
 ## Available Examples
 
@@ -98,24 +98,27 @@ A full-featured single-page application showcasing all LeviRoutes features. Incl
 
 ## Notes
 
-- All examples use the non-minified `routes.js` from the project root for easier debugging
+- Existing examples (GET, POST) use the classic script format with `routes.js` from the project root
+- New examples (Named Parameters, SPA) use ES module syntax with `src/routes.js` 
 - Examples are designed to work in modern browsers that support ES6+ and HTML5 History API
 - The examples demonstrate client-side routing only (no server-side components required)
+- For best results, ensure you start the web server from the project root directory
 
 ## Building Your Own
 
 To create your own example:
 
-1. Create a new HTML file
-2. Import LeviRoutes:
+1. Create a new HTML file in the appropriate subdirectory
+2. Import LeviRoutes (adjust path based on location):
    ```html
+   <!-- For files in examples/client/ subdirectories -->
    <script type="module">
-     import routes from '../../src/routes.js';
+     import routes from '../../../src/routes.js';
      const app = new routes();
      // ... your code
    </script>
    ```
 3. Define your routes and middleware
-4. Test in a browser with a local web server
+4. Test in a browser with a local web server (start from project root)
 
 See the main [README.md](../../README.md) for full API documentation.
