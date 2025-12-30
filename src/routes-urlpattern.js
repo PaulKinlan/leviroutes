@@ -25,6 +25,25 @@ const routes = function() {
   var _middleware = [];
   var me = this;
 
+  // Helper function for regex-based route parsing (fallback)
+  var parseGroups = function(loc) {
+    var nameRegexp = new RegExp(":([^/.\\\\]+)", "g"); 
+    var newRegexp = "" + loc;
+    var groups = {};
+    var matches = null;
+    var i = 0;
+
+    // Find the places to edit.
+    while(matches = nameRegexp.exec(loc)) {
+      groups[matches[1]] = i++;
+      newRegexp = newRegexp.replace(matches[0], "([^/.\\\\]+)"); 
+    }
+
+    newRegexp += "$"; // Only do a full string match
+
+    return { "groups" : groups, "regexp": new RegExp(newRegexp)};
+  };
+
   this.parseRoute = function(path) {
     if (URLPatternImpl) {
       // Use URLPattern API
@@ -41,25 +60,7 @@ const routes = function() {
     }
     
     // Fallback: Original regex-based implementation
-    this.parseGroups = function(loc) {
-      var nameRegexp = new RegExp(":([^/.\\\\]+)", "g"); 
-      var newRegexp = "" + loc;
-      var groups = {};
-      var matches = null;
-      var i = 0;
-
-      // Find the places to edit.
-      while(matches = nameRegexp.exec(loc)) {
-        groups[matches[1]] = i++;
-        newRegexp = newRegexp.replace(matches[0], "([^/.\\\\]+)"); 
-      }
-
-      newRegexp += "$"; // Only do a full string match
-
-      return { "groups" : groups, "regexp": new RegExp(newRegexp)};
-    };
-      
-    return this.parseGroups(path); 
+    return parseGroups(path); 
   };
 
   this.use = function(middleware) {
