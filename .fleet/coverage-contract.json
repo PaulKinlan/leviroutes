@@ -6,6 +6,19 @@
     "spec/routeparsing.spec.mjs",
     "spec/routesframework.spec.mjs"
   ],
+  "tests/*": [
+    "spec/middleware.spec.mjs",
+    "spec/routeexecution.spec.mjs",
+    "spec/routemanagement.spec.mjs",
+    "spec/routeparsing.spec.mjs",
+    "spec/routesframework.spec.mjs"
+  ],
+  "lib/*": [
+    "tools/fast-gate.test.sh"
+  ],
+  "SpecRunner.html": [
+    "tools/fast-gate.test.sh"
+  ],
   "tools/check-cmd.sh": [
     "tools/fast-gate.test.sh"
   ],

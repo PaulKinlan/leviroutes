@@ -21,7 +21,12 @@ tools/suite-map.tsv	tools/fast-gate.test.sh
 tools/check.conf	tools/fast-gate.test.sh tools/verify-package.mjs
 tools/check-cmd.sh	tools/fast-gate.test.sh tools/verify-package.mjs
 
-# --- Exemptions: documentation, static demos, CI metadata, and legacy runner ---
+# --- Retired legacy runner & test mappings (leviroutes-n0a) ---
+SpecRunner.html	tools/fast-gate.test.sh
+lib/**	tools/fast-gate.test.sh
+tests/**	spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs
+
+# --- Exemptions: documentation, static demos, CI metadata ---
 !.fleet/**	# fleet configuration and coverage contract
 !*.md	# top-level documentation
 !**/*.md	# nested documentation
@@ -30,6 +35,3 @@ tools/check-cmd.sh	tools/fast-gate.test.sh tools/verify-package.mjs
 !.github/**	# github workflow and copilot configurations
 !.gitignore	# git configuration
 !examples/**	# static HTML demo pages
-!SpecRunner.html	# legacy browser runner, queued for retirement in leviroutes-n0a
-!tests/**	# legacy tests, queued for retirement in leviroutes-n0a
-!lib/**	# legacy vendored jasmine, queued for retirement in leviroutes-n0a
