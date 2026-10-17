@@ -193,8 +193,37 @@ const routes = function(options) {
     }
 
     var triggered = false;
-    var cancelHashChange = false;
-    var cancelPopstate = false;
+
+    // Navigation events are deduplicated by URL. 'routedUrl' is the location
+    // (pathname, query and fragment) this router last routed for, so a popstate or
+    // hashchange that reports the same location is not a new one and its route has
+    // already fired. This replaces the one-shot cancelPopstate/cancelHashChange
+    // flags, which were armed at load time and cleared by the next event: that
+    // swallowed the first real Back press and the first real hashchange after page
+    // load (leviroutes-s8o). Those flags existed for browsers that fire a popstate
+    // immediately after load; that popstate reports the location the load handler
+    // just routed for, which is exactly what this comparison distinguishes from a
+    // real navigation.
+    var routedUrl = null;
+    // A pushState moves the location without routing (the application renders the
+    // new entry itself), so the location a popstate lands on can be identical to
+    // the one that was routed before it - a state-only history entry - and that
+    // popstate must still fire. Set by pushState, cleared whenever a route runs.
+    var pushedSinceRoute = false;
+
+    var currentUrl = function() {
+      var loc = document.location;
+      return loc.pathname + loc.search + loc.hash;
+    };
+
+    var markUrl = function(pushed) {
+      routedUrl = currentUrl();
+      pushedSinceRoute = pushed === true;
+    };
+
+    var alreadyRouted = function() {
+      return pushedSinceRoute == false && routedUrl === currentUrl();
+    };
 
     // Add a new event to HTML5 History
     if(!!window.history && !!window.history.pushState) {
@@ -203,6 +232,10 @@ const routes = function(options) {
 
       history.__proto__.pushState = function(state, title, url) {
         pushStateProxy.apply(history, arguments);
+
+        // No route runs for a pushState, but the location did move: record it so
+        // the Back that follows is not read as a repeat of the load-time location.
+        markUrl(true);
 
         //var evt = document.createEvent("PopStateEvent");
         //evt.initPopStateEvent("statechange", false, false, state);
@@ -218,6 +251,7 @@ const routes = function(options) {
       if(!triggered) {
         matchRoute(document.location.pathname);
         triggered = true;
+        markUrl(false);
       }
     };
 
@@ -233,17 +267,17 @@ const routes = function(options) {
       return true;
     });
 
-    window.addEventListener("popstate", function(e) {
-      if(cancelPopstate) {
-        cancelPopstate = false;
-        cancelHashChange = false;
-        return;
-      }
+    // popstate and hashchange share one handler because they describe the same
+    // navigation: a fragment navigation fires popstate and then hashchange for one
+    // location, so the second event matches routedUrl and does not fire again.
+    var routeOnNavigation = function(e) {
+      if(alreadyRouted()) return;
 
       matchRoute(document.location.pathname);
-      // popstate fires before a hash change, don't fire twice.
-      cancelHashChange = true;
-    }, false);
+      markUrl(false);
+    };
+
+    window.addEventListener("popstate", routeOnNavigation, false);
 
     window.addEventListener("load", function(e) {
       if(!triggered) {
@@ -251,18 +285,10 @@ const routes = function(options) {
         triggered = true;
       }
 
-      cancelHashChange = true;
-      cancelPopstate = true;
+      markUrl(false);
     }, false);
 
-    window.addEventListener("hashchange", function(e) {
-      if(cancelHashChange) {
-        cancelHashChange = false;
-        cancelPopstate = false;
-        return;
-      }
-      matchRoute(document.location.pathname);
-    }, false);
+    window.addEventListener("hashchange", routeOnNavigation, false);
   };
 
   attach();
