@@ -7,11 +7,16 @@
 
       var app = new routes();
 
-      app.get('page2.html', function() {
+      // Routes match the whole pathname (anchored ^...$), so register them under
+      // this page's directory - this works whether the server root is the repo
+      // root or this example directory.
+      var base = location.pathname.replace(/[^/]*$/, '');
+
+      app.get(base + 'page2.html', function() {
         alert('On page 2');
       });
       
-      app.get('example.html', function() {
+      app.get(base + 'example.html', function() {
         alert('On example');
       });
 
@@ -34,11 +39,14 @@
     <p>Navigate to page2, you will see the event doesn't fire.  This is ok, because you are overriding the click event so you can handle it there.  Now click on the navigation buttons forwards and backwards and watch the event fire.</p>
     <pre><code>var app = new routes();
 
-app.get('page2.html', function() {
+// Routes match the whole pathname, so prefix with this page's directory.
+var base = location.pathname.replace(/[^/]*$/, '');
+
+app.get(base + 'page2.html', function() {
   alert('On page 2');
 });
       
-app.get('example.html', function() {
+app.get(base + 'example.html', function() {
   alert('On example');
 }); </code></pre>
     <a href="example.html" id="examplePageLink">Go to example.html</a>
