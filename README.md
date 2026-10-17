@@ -88,9 +88,44 @@ A route is matched against the **whole pathname**, and a literal `.` in a route 
 * Form actions resolve to absolute URLs; the pathname is matched, so `action="http://other.test/test"`
   reaches `app.post("/test")` while `action="http://other.test/deep/test"` does not.
 
-The rest of a route string is still treated as regular-expression syntax (`/foo+`, `/a|b`), which a
-future major version will replace with URL Pattern semantics - see
-[`docs/urlpattern-investigation.md`](docs/urlpattern-investigation.md).
+The rest of a route string is still treated as regular-expression syntax (`/foo+`, `/a|b`) by the
+default matcher.
+
+### Optional: the URL Pattern matcher
+
+`new routes({ matcher: "urlpattern" })` compiles routes with the
+[URL Pattern API](https://developer.mozilla.org/en-US/docs/Web/API/URLPattern) instead. It is
+opt-in because it changes matching semantics; the default is unchanged.
+
+```javascript
+const app = new routes({ matcher: "urlpattern" });
+
+app.get("/files/:name", function(req) {
+  // /files/report.pdf now matches: URL Pattern segments may contain dots
+  console.log(req.params.name); // "report.pdf"
+});
+
+app.get("/books/:id(\\d+)", function(req) {
+  // regex groups, optional groups and wildcards are available
+});
+```
+
+Differences from the default matcher:
+
+| | default (`regexp`) | `urlpattern` |
+| --- | --- | --- |
+| `/:category` vs `/foo.json` | no match (segment excludes `.`) | match (`foo.json`) |
+| `/files/:name` vs `/files/report.pdf` | no match | match |
+| trailing slash | `/foo` and `/foo/` are different routes | same; use `/foo{/}?` to accept both |
+| `/foo+` | regex quantifier | **throws** — name the route in the error and escape literals |
+| optional segment | not expressible | `/files{/:id}?` |
+
+The API is available natively in current browsers and in Node 24+; elsewhere load
+[`urlpattern-polyfill`](https://github.com/kenchris/urlpattern-polyfill) before constructing the
+router, or `routes({ matcher: "urlpattern" })` throws a message saying so. Matching is still on the
+pathname, and only named groups become `req.params`. See
+[`docs/urlpattern-investigation.md`](docs/urlpattern-investigation.md) for the measurements behind
+this and the migration plan.
 
 ### POST Request Handling
 

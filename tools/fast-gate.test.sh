@@ -27,6 +27,8 @@ touch "$ROOT/repo/spec/routeexecution.spec.mjs"
 touch "$ROOT/repo/spec/routemanagement.spec.mjs"
 touch "$ROOT/repo/spec/routeparsing.spec.mjs"
 touch "$ROOT/repo/spec/routesframework.spec.mjs"
+touch "$ROOT/repo/spec/fixtureisolation.spec.mjs"
+touch "$ROOT/repo/spec/urlpatternmatcher.spec.mjs"
 
 # Stub runner: records invocations, exits 0 (or 1 if STUB_FAIL=1)
 cat > "$ROOT/runner" <<'STUB'
@@ -53,9 +55,11 @@ has "$out" "fast-gate: running: spec/routeexecution.spec.mjs" "1b ... and routee
 has "$out" "fast-gate: running: spec/routemanagement.spec.mjs" "1c ... and routemanagement spec"
 has "$out" "fast-gate: running: spec/routeparsing.spec.mjs" "1d ... and routeparsing spec"
 has "$out" "fast-gate: running: spec/routesframework.spec.mjs" "1e ... and routesframework spec"
-has "$out" "fast-gate: passed: spec/middleware.spec.mjs" "1f passing suite is reported with positive marker"
-has "$out" "fast-gate: PASS (5 suite(s), 1 changed file(s))" "1g terminal PASS line matches producer contract"
-[ "$rc" = 0 ] && ok "1h exit 0 on success" || bad "1h expected exit 0" "got $rc"
+has "$out" "fast-gate: running: spec/fixtureisolation.spec.mjs" "1f ... and the fixture-isolation spec"
+has "$out" "fast-gate: running: spec/urlpatternmatcher.spec.mjs" "1g ... and the urlpattern matcher spec"
+has "$out" "fast-gate: passed: spec/middleware.spec.mjs" "1h passing suite is reported with positive marker"
+has "$out" "fast-gate: PASS (7 suite(s), 1 changed file(s))" "1i terminal PASS line matches producer contract"
+[ "$rc" = 0 ] && ok "1j exit 0 on success" || bad "1j expected exit 0" "got $rc"
 
 # 2. Unmapped changed file fails loudly
 out=$(run --changed src/unknown.js)

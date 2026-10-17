@@ -14,12 +14,50 @@
  limitations under the License.
 */
 
-const routes = function() {
+const routes = function(options) {
   var _routes = [];
   var _middleware = [];
   var me = this;
+  // Opt-in matcher. 'regexp' is the historical behaviour and the default, so an
+  // existing app that passes no options behaves exactly as before; 'urlpattern'
+  // compiles routes with the URL Pattern API instead (see
+  // docs/urlpattern-investigation.md for why that is a separate mode, not a swap).
+  var matcherKind = (options && options.matcher) === "urlpattern" ? "urlpattern" : "regexp";
+  // Reserved TLD: matching never looks at the host in this mode, so this cannot collide.
+  var URLPATTERN_ORIGIN = "http://leviroutes.invalid";
+
+  var urlPatternCtor = function() {
+    if (typeof globalThis !== "undefined" && globalThis.URLPattern) return globalThis.URLPattern;
+    if (typeof window !== "undefined" && window.URLPattern) return window.URLPattern;
+
+    return null;
+  };
+
+  // Compiled shape for the urlpattern matcher: { pattern, groups, regexp: null }.
+  // 'groups' is empty because URLPattern reports its own groups at match time.
+  var compileUrlPattern = function(path) {
+    var Ctor = urlPatternCtor();
+
+    if (!Ctor) {
+      throw new Error("leviroutes: the 'urlpattern' matcher needs the URL Pattern API " +
+        "(available natively in current browsers and Node 24+, or via urlpattern-polyfill)");
+    }
+
+    try {
+      // Path-only patterns keep host and protocol wildcards, so a bare pathname from
+      // document.location can be passed straight to test()/exec().
+      return { "pattern": new Ctor({ "pathname": path }), "groups": {}, "regexp": null };
+    } catch (error) {
+      // A regex-flavoured route ('/foo+', '/a|b') is not a URL pattern. Name the route:
+      // the raw "Failed to construct URLPattern" is unusable in a migration.
+      throw new Error("leviroutes: route " + JSON.stringify(path) + " is not a valid URL pattern: " +
+        error.message);
+    }
+  };
 
   this.parseRoute = function(path) {
+    if (matcherKind === "urlpattern") return compileUrlPattern(path);
+
     this.parseGroups = function(loc) {
       var nameRegexp = new RegExp(":([^/.\\\\]+)", "g"); 
       // A literal dot in a route is path punctuation, not the regular-expression "any
@@ -70,13 +108,33 @@ const routes = function() {
     var route = null;
     var path = pathnameOf(url);
     for(var i = 0; route = _routes[i]; i ++) {
-      var routeMatch = route.regex.regexp.exec(path);
-      if(!!routeMatch == false) continue;
-      
-      var params = {};
-      for(var g in route.regex.groups) {
-        var group = route.regex.groups[g];
-        params[g] = routeMatch[group + 1];
+      var params = null;
+
+      if (route.regex.pattern) {
+        // Matching is on the pathname, so the origin is irrelevant - but it must be
+        // present: Chrome returns null for a bare path string passed to URLPattern.exec()
+        // (it parses the input as a URL), while Node accepts it. Passing an absolute URL
+        // keeps both engines on the same path, which is not something a Node-only test
+        // would catch.
+        var patternMatch = route.regex.pattern.exec(URLPATTERN_ORIGIN + path);
+        if (!patternMatch) continue;
+
+        // Only named groups become req.params: URLPattern also reports positional
+        // keys ('0', '1', ...) for wildcards, which are not named parameters.
+        params = {};
+        var named = patternMatch.pathname.groups;
+        for(var name in named) {
+          if (/^\d+$/.test(name) == false && typeof named[name] === "string") params[name] = named[name];
+        }
+      } else {
+        var routeMatch = route.regex.regexp.exec(path);
+        if(!!routeMatch == false) continue;
+
+        params = {};
+        for(var g in route.regex.groups) {
+          var group = route.regex.groups[g];
+          params[g] = routeMatch[group + 1];
+        }
       }
 
       var values = {};
