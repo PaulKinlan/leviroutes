@@ -152,6 +152,12 @@ The build process creates a minified version in `dist/routes.min.js`:
 npm run build
 ```
 
+### URLPattern investigation
+
+[`docs/urlpattern-investigation.md`](docs/urlpattern-investigation.md) assesses the URL Pattern
+API as a replacement for the built-in matcher (GH #22): what it would fix, what it would break,
+and the measured cost. Short version: feasible, not a drop-in swap.
+
 ## License
 
 Licensed under the Apache License, Version 2.0. See the [LICENCE](LICENCE) file for details.
