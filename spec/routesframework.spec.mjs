@@ -49,13 +49,29 @@ describe("route framework", function() {
       expect(fired).toEqual(["page.html", "page.html"]);
     });
 
-    it("should not fire twice for a popstate that reports the loaded location", function() {
-      // The request the load-time guard was there for: some browsers fire a
-      // popstate immediately after load, for the page the load handler routed.
+    it("should fire for both of two Back presses onto the same location", function() {
+      // leviroutes-jy0: two state-only entries share a URL, so each Back press is a
+      // distinct navigation that must fire. Only the popstate/hashchange pair of one
+      // fragment navigation is deduplicated - never a popstate, which cannot be told
+      // apart from a real press onto a state-only entry.
+      window.dispatchEvent(new Event("load"));
+      window.history.pushState({ step: 1 }, "", "/page.html");
+      window.history.pushState({ step: 2 }, "", "/page.html");
+      window.dispatchEvent(new Event("popstate"));
+      window.dispatchEvent(new Event("popstate"));
+
+      expect(fired).toEqual(["page.html", "page.html", "page.html"]);
+    });
+
+    it("should fire for a popstate that reports the loaded location", function() {
+      // The original load-time guard's case: a browser firing a spurious popstate right
+      // after load. It reports the location load routed for, exactly as a Back press onto
+      // a state-only entry does, so it is not suppressed - the double fire on such a
+      // browser (long fixed in WebKit) is the accepted cost of never losing a real press.
       window.dispatchEvent(new Event("load"));
       window.dispatchEvent(new Event("popstate"));
 
-      expect(fired).toEqual(["page.html"]);
+      expect(fired).toEqual(["page.html", "page.html"]);
     });
 
     it("should fire the route on a hashchange after load", function() {
