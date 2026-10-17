@@ -8,8 +8,9 @@
       var app = new routes();
 
       // Routes match the whole pathname (anchored ^...$), so register the form's
-      // action under this page's directory - this works whether the server root
-      // is the repo root or this example directory.
+      // action under this page's directory. Serve from the repo root (see
+      // examples/README.md): the '../../../src/routes.js' import above 404s if the
+      // server root is this example directory.
       var base = location.pathname.replace(/[^/]*$/, '');
 
       app.post(base + 'post.html', function(e) {
