@@ -79,12 +79,31 @@ try {
   process.exit(1);
 }
 
-// 5. Package export resolution via child process import
+// 5. Package export resolution assertions
 try {
-  execSync(
-    'node -e "import(\'leviroutes\').then(({default: R}) => { const r = new R(); let ok = false; r.get(\'/smoke\', () => ok = true); r.test(\'/smoke\'); if (!ok) process.exit(1); })"',
-    { cwd: root, stdio: 'pipe' }
-  );
+  // Assert default condition resolves to main ESM file
+  const defaultUrl = execSync(
+    'node --input-type=module -e "console.log(import.meta.resolve(\'leviroutes\'))"',
+    { cwd: root, encoding: 'utf8' }
+  ).trim();
+  const defaultResolvedPath = fileURLToPath(defaultUrl);
+  const expectedDefault = path.resolve(root, pkg.main);
+  if (path.resolve(defaultResolvedPath) !== expectedDefault) {
+    throw new Error(`Default import resolved to ${defaultResolvedPath}, expected ${expectedDefault}`);
+  }
+
+  // Assert browser condition resolves to minified dist artifact
+  const browserUrl = execSync(
+    'node --conditions=browser --input-type=module -e "console.log(import.meta.resolve(\'leviroutes\'))"',
+    { cwd: root, encoding: 'utf8' }
+  ).trim();
+  const browserResolvedPath = fileURLToPath(browserUrl);
+  const expectedBrowser = path.resolve(root, pkg.browser);
+  if (path.resolve(browserResolvedPath) !== expectedBrowser) {
+    throw new Error(`Browser condition resolved to ${browserResolvedPath}, expected ${expectedBrowser}`);
+  }
+
+  // Functional check in child process
   execSync(
     'node --conditions=browser -e "import(\'leviroutes\').then(({default: R}) => { const r = new R(); let ok = false; r.get(\'/smoke\', () => ok = true); r.test(\'/smoke\'); if (!ok) process.exit(1); })"',
     { cwd: root, stdio: 'pipe' }

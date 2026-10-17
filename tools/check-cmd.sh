@@ -17,8 +17,13 @@ case "${1:-}" in
       DEST="${TARGET:-$GLOBAL_CONF}"
     fi
     mkdir -p "$(dirname "$DEST")"
-    cp "$TRACKED" "$DEST"
-    [ -n "$REPO_CONF" ] && cp "$TRACKED" "$REPO_CONF"
+    GIT_COMMON=$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || echo "")
+    if [ -n "$GIT_COMMON" ]; then
+      sed "s|^CHECK_FAST_CONTRACT_OWNER=.*|CHECK_FAST_CONTRACT_OWNER=\"$GIT_COMMON\"|" "$TRACKED" > "$DEST"
+    else
+      cp "$TRACKED" "$DEST"
+    fi
+    [ -n "$REPO_CONF" ] && cp "$DEST" "$REPO_CONF"
     echo "Installed check configuration from $TRACKED to $DEST"
     exit 0
     ;;

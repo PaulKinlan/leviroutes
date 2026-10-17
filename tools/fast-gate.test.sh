@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# tools/fast-gate.test.sh — self-test suite for tools/fast-gate.sh
+# tools/fast-gate.test.sh — self-test suite for leviroutes gate tooling:
+# covers tools/fast-gate.sh, tools/check-cmd.sh, tools/check.conf, and tools/full-gate.sh.
 #
-# Asserts selection, fail-loud behaviour, exemptions, and output contract compliance.
+# Asserts selection, fail-loud behaviour, exemptions, config validation, and full-gate orchestration.
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
@@ -16,6 +17,8 @@ ROOT=$(mktemp -d); trap 'rm -rf "$ROOT"' EXIT
 mkdir -p "$ROOT/repo"
 cp -r "$HERE" "$ROOT/repo/tools"
 GATE="$ROOT/repo/tools/fast-gate.sh"
+CHECK_CMD_SCRIPT="$ROOT/repo/tools/check-cmd.sh"
+FULL_GATE_SCRIPT="$ROOT/repo/tools/full-gate.sh"
 
 mkdir -p "$ROOT/repo/spec" "$ROOT/repo/src"
 touch "$ROOT/repo/src/routes.js"
@@ -39,7 +42,7 @@ export FAST_GATE_RUNNER="$ROOT/runner" RUN_LOG="$ROOT/run.log"
 run() { ( cd "$ROOT/repo" && FAST_GATE_RUNNER="$FAST_GATE_RUNNER" RUN_LOG="$RUN_LOG" STUB_FAIL="${STUB_FAIL:-0}" bash "$GATE" "$@" 2>&1 ); }
 run_rc() { ( cd "$ROOT/repo" && FAST_GATE_RUNNER="$FAST_GATE_RUNNER" RUN_LOG="$RUN_LOG" STUB_FAIL="${STUB_FAIL:-0}" bash "$GATE" "$@" >/dev/null 2>&1 ); echo $?; }
 
-echo "fast-gate: selection and fail-loud behaviour"
+echo "=== Section 1: fast-gate.sh selection and fail-loud behaviour ==="
 
 # 1. Mapped source file selects all 5 specs and executes them
 rm -f "$RUN_LOG"
@@ -115,11 +118,80 @@ has "$out" "the map IS the gate" "9a missing map refuses to guess"
 [ "$rc" != 0 ] && ok "9b missing map exits non-zero" || bad "9b expected non-zero exit" "got $rc"
 mv "$ROOT/map.hidden" "$ROOT/repo/tools/suite-map.tsv"
 
+echo "=== Section 2: check-cmd.sh and check.conf validation ==="
+
+# 10. check-cmd.sh outputs expected field values from check.conf
+cmd_val=$(bash "$CHECK_CMD_SCRIPT" CHECK_CMD)
+fast_cmd_val=$(bash "$CHECK_CMD_SCRIPT" CHECK_FAST_CMD)
+[ "$cmd_val" = "bash tools/full-gate.sh" ] && ok "10a check-cmd.sh prints CHECK_CMD correctly" || bad "10a CHECK_CMD wrong" "$cmd_val"
+[ "$fast_cmd_val" = "bash tools/fast-gate.sh" ] && ok "10b check-cmd.sh prints CHECK_FAST_CMD correctly" || bad "10b CHECK_FAST_CMD wrong" "$fast_cmd_val"
+
+# 11. check-cmd.sh --check verifies matching configuration
+TEST_TARGET="$ROOT/installed-check.conf"
+cp "$ROOT/repo/tools/check.conf" "$TEST_TARGET"
+check_rc=0
+FLEET_CHECK_CONF="$TEST_TARGET" bash "$CHECK_CMD_SCRIPT" --check >/dev/null 2>&1 || check_rc=$?
+[ "$check_rc" = 0 ] && ok "11 check-cmd.sh --check passes on matching configuration" || bad "11 expected exit 0" "got $check_rc"
+
+# 12. check-cmd.sh --check exits 3 when target config is missing
+rm -f "$TEST_TARGET"
+missing_rc=0
+FLEET_CHECK_CONF="$TEST_TARGET" bash "$CHECK_CMD_SCRIPT" --check >/dev/null 2>&1 || missing_rc=$?
+[ "$missing_rc" = 3 ] && ok "12 check-cmd.sh --check exits 3 on missing configuration" || bad "12 expected exit 3" "got $missing_rc"
+
+# 13. check-cmd.sh --check exits 1 when target config differs
+echo 'CHECK_CMD="bogus"' > "$TEST_TARGET"
+diff_rc=0
+FLEET_CHECK_CONF="$TEST_TARGET" bash "$CHECK_CMD_SCRIPT" --check >/dev/null 2>&1 || diff_rc=$?
+[ "$diff_rc" = 1 ] && ok "13 check-cmd.sh --check exits 1 on configuration drift" || bad "13 expected exit 1" "got $diff_rc"
+
+# 14. check-cmd.sh --install copies tracked config to target
+rm -f "$TEST_TARGET"
+install_rc=0
+FLEET_CHECK_CONF="$TEST_TARGET" bash "$CHECK_CMD_SCRIPT" --install >/dev/null 2>&1 || install_rc=$?
+[ "$install_rc" = 0 ] && [ -f "$TEST_TARGET" ] && cmp -s <(sed 's|CHECK_FAST_CONTRACT_OWNER=.*||' "$ROOT/repo/tools/check.conf") <(sed 's|CHECK_FAST_CONTRACT_OWNER=.*||' "$TEST_TARGET") \
+  && ok "14 check-cmd.sh --install correctly installs configuration" || bad "14 check-cmd.sh --install failed" "rc=$install_rc"
+
+echo "=== Section 3: full-gate.sh execution and step orchestration ==="
+
+# 15. full-gate.sh runs all steps in throwaway repo with stubs and passes
+mkdir -p "$ROOT/repo/tools"
+cat > "$ROOT/repo/tools/verify-package.mjs" <<'STUB_VP'
+console.log("verify-package: PASS");
+process.exit(0);
+STUB_VP
+
+# Stub package.json with npm test script in throwaway repo
+cat > "$ROOT/repo/package.json" <<'STUB_PKG'
+{
+  "name": "test-repo",
+  "scripts": {
+    "test": "echo 'all specs passed'"
+  }
+}
+STUB_PKG
+
+full_out=$(cd "$ROOT/repo" && SKIP_GATE_SELF_TESTS=1 bash "$FULL_GATE_SCRIPT" 2>&1)
+full_rc=$?
+has "$full_out" "package and build verification:" "15a full-gate runs package verification step"
+has "$full_out" "full test suite:" "15b full-gate runs full test suite step"
+has "$full_out" "full gate: PASS" "15c full-gate terminal PASS marker"
+has "$full_out" "gate-tier: not-applicable" "15d full-gate reports tier not-applicable"
+[ "$full_rc" = 0 ] && ok "15e full-gate exits 0 on success" || bad "15e expected exit 0" "got $full_rc"
+
+# 16. full-gate.sh fails loudly if a step fails
+cat > "$ROOT/repo/tools/verify-package.mjs" <<'STUB_FAIL'
+console.error("verify-package: broken export");
+process.exit(1);
+STUB_FAIL
+fail_out=$(cd "$ROOT/repo" && SKIP_GATE_SELF_TESTS=1 bash "$FULL_GATE_SCRIPT" 2>&1 || true)
+has "$fail_out" "full gate: FAIL" "16a full-gate reports FAIL when a step fails"
+
 echo
 if [ "$FAIL" -eq 0 ]; then
-  echo "fast-gate tests: $PASS passed, 0 failed"
+  echo "gate tooling tests: $PASS passed, 0 failed"
   exit 0
 fi
-echo "fast-gate tests: $PASS passed, $FAIL FAILED"
+echo "gate tooling tests: $PASS passed, $FAIL FAILED"
 for t in "${FAILED[@]}"; do echo "  FAILED: $t"; done
 exit 1

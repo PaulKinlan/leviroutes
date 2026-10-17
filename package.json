@@ -8,8 +8,8 @@
   "browser": "./dist/routes.min.js",
   "exports": {
     ".": {
-      "import": "./src/routes.js",
-      "browser": "./dist/routes.min.js"
+      "browser": "./dist/routes.min.js",
+      "import": "./src/routes.js"
     }
   },
   "scripts": {

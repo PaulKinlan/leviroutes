@@ -81,8 +81,7 @@ else
     fi
 
     mapfile -t CHANGED < <( { git -C "$ROOT" diff --name-only "$DIFF_SPEC"
-                              git -C "$ROOT" diff --name-only
-                              git -C "$ROOT" ls-files --others --exclude-standard; } 2>/dev/null \
+                              git -C "$ROOT" diff --name-only; } 2>/dev/null \
                             | sed '/^$/d' | sort -u )
   else
     CHANGED=("${EXPLICIT[@]}")

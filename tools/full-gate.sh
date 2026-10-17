@@ -17,8 +17,10 @@ step "package and build verification: node tools/verify-package.mjs"
 step "full test suite: npm test"
 ( cd "$ROOT" && npm test ) || rc=1
 
-step "gate self-tests: bash tools/fast-gate.test.sh"
-( cd "$ROOT" && bash tools/fast-gate.test.sh ) || rc=1
+if [ "${SKIP_GATE_SELF_TESTS:-0}" != "1" ]; then
+  step "gate self-tests: bash tools/fast-gate.test.sh"
+  ( cd "$ROOT" && bash tools/fast-gate.test.sh ) || rc=1
+fi
 
 if [ "$rc" -eq 0 ]; then
   echo "full gate: PASS"
