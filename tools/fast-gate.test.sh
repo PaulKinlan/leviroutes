@@ -36,6 +36,28 @@ touch "$ROOT/repo/spec/routesframework.spec.mjs"
 touch "$ROOT/repo/spec/fixtureisolation.spec.mjs"
 touch "$ROOT/repo/spec/urlpatternmatcher.spec.mjs"
 
+# Materialise a file for every row in the map under test, so the map's own dead-row check
+# (leviroutes-62g) sees a tree where each row still describes something: <path> becomes that
+# file, <dir>/** becomes a file inside that directory. Existing fixtures (the tools/ scripts
+# above all, the specs below) are never overwritten. Keys the fixture does not need - but
+# must not claim to be dead - are created empty.
+while IFS=$'\t' read -r pat rest; do
+  case $pat in ''|\#*|\!*) continue ;; esac
+  case $pat in
+    *'/**')
+      dead_fix_dir="$ROOT/repo/${pat%'/**'}"
+      mkdir -p "$dead_fix_dir"
+      [ -e "$dead_fix_dir/fixture.mjs" ] || : > "$dead_fix_dir/fixture.mjs"
+      ;;
+    *)
+      if [ ! -e "$ROOT/repo/$pat" ]; then
+        mkdir -p "$ROOT/repo/$(dirname "$pat")"
+        : > "$ROOT/repo/$pat"
+      fi
+      ;;
+  esac
+done < "$HERE/suite-map.tsv"
+
 # Stub runner: records invocations, exits 0 (or 1 if STUB_FAIL=1)
 cat > "$ROOT/runner" <<'STUB'
 #!/usr/bin/env bash
@@ -150,6 +172,47 @@ else
     bad "9c spec files named in no suite-map row" "${unselected[*]}"
   fi
 fi
+
+# 9d. A map row whose path is gone fails loudly instead of selecting suites. A row that outlives
+# its path is dead config: it turns a change under that path from 'unmapped' into a PASS with
+# coverage that never ran (leviroutes-62g, from the leviroutes-n0a review, which deleted
+# SpecRunner.html/lib/tests but re-mapped them to unrelated suites). The ghost paths below name
+# nothing and are created by no fixture, so this stays a dead row as the map changes.
+cp "$ROOT/repo/tools/suite-map.tsv" "$ROOT/map.bak"
+printf 'retired-ghost/**\tspec/middleware.spec.mjs\n' >> "$ROOT/repo/tools/suite-map.tsv"
+out=$(run --changed src/routes.js)
+rc=$(run_rc --changed src/routes.js)
+has "$out" "fast-gate: dead row: retired-ghost/**" "9d1 dead map row is named"
+[ "$rc" != 0 ] && ok "9d2 dead map row exits non-zero" || bad "9d2 expected non-zero exit" "got $rc"
+hasnt "$out" "fast-gate: PASS" "9d3 dead map row does not report PASS"
+
+# ... and a literal path row is checked the same way (SpecRunner.html was the other half of 62g).
+printf 'retired-ghost.js\ttools/fast-gate.test.sh\n' >> "$ROOT/repo/tools/suite-map.tsv"
+out=$(run --list --changed src/routes.js)
+rc=$(run_rc --list --changed src/routes.js)
+has "$out" "fast-gate: dead row: retired-ghost.js" "9d4 dead literal row is named"
+[ "$rc" != 0 ] && ok "9d5 dead literal row exits non-zero even for --list" || bad "9d5 expected non-zero exit" "got $rc"
+cp "$ROOT/map.bak" "$ROOT/repo/tools/suite-map.tsv"
+
+# 9e. The real map satisfies that rule today: the checkout's own rows all describe live paths.
+# (Run against REAL_ROOT - the throwaway repo's fixture satisfies the rule by construction.)
+out=$( cd "$REAL_ROOT" && bash "$REAL_ROOT/tools/fast-gate.sh" --list --changed src/routes.js 2>&1 )
+rc=$?
+[ "$rc" = 0 ] && ok "9e every row in the checkout's suite map names a path in the tree" \
+  || bad "9e checkout suite map has a dead row" "$(grep -E 'dead row|FAIL' <<<"$out" | head -3)"
+
+# 9f. The coverage contract is the fleet coverage checker's independent oracle, so a key for a
+# deleted path is the same false green one layer up (62g: tests/*, lib/*, SpecRunner.html).
+CONTRACT="$REAL_ROOT/.fleet/coverage-contract.json"
+dead_keys=$(node -e '
+  const fs = require("fs");
+  const contract = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  const root = process.argv[2];
+  const dead = Object.keys(contract).filter((k) => !fs.existsSync(root + "/" + k.replace(/\/\*{1,2}$/, "")));
+  if (dead.length) { console.log(dead.join(" ")); process.exit(1); }
+' "$CONTRACT" "$REAL_ROOT" 2>&1)
+[ -z "$dead_keys" ] && ok "9f every coverage-contract key names a path in the tree" \
+  || bad "9f coverage contract has dead keys" "$dead_keys"
 
 echo "=== Section 2: check-cmd.sh and check.conf validation ==="
 
