@@ -8,12 +8,15 @@
   "browser": "./dist/routes.min.js",
   "exports": {
     ".": {
-      "import": "./src/routes.js",
-      "browser": "./dist/routes.min.js"
+      "browser": "./dist/routes.min.js",
+      "import": "./src/routes.js"
     }
   },
   "scripts": {
     "test": "jasmine",
+    "test:fast": "bash tools/fast-gate.sh",
+    "test:full": "bash tools/full-gate.sh",
+    "verify:package": "node tools/verify-package.mjs",
     "build": "npm run build:min",
     "build:min": "terser src/routes.js -o dist/routes.min.js -c -m --comments false",
     "prepublishOnly": "npm run build"

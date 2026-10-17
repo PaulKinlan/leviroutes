@@ -1,0 +1,35 @@
+# tools/suite-map.tsv — source and config paths to covering suites for leviroutes
+# Format:
+#   <glob><TAB><suite> [<suite> ...]
+#   !<glob> (exemption with reason)
+
+# --- Runtime source to covering specs ---
+src/routes.js	spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs
+
+# --- Test framework / fixtures ---
+spec/helpers/**	spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs
+spec/support/**	spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs
+
+# --- Packaging, lockfile and gate tooling ---
+package.json	tools/verify-package.mjs spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs
+package-lock.json	tools/verify-package.mjs spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs
+tools/verify-package.mjs	tools/verify-package.mjs
+tools/fast-gate.sh	tools/fast-gate.test.sh tools/verify-package.mjs
+tools/fast-gate.test.sh	tools/fast-gate.test.sh
+tools/full-gate.sh	tools/fast-gate.test.sh tools/verify-package.mjs
+tools/suite-map.tsv	tools/fast-gate.test.sh
+tools/check.conf	tools/fast-gate.test.sh tools/verify-package.mjs
+tools/check-cmd.sh	tools/fast-gate.test.sh tools/verify-package.mjs
+
+# --- Exemptions: documentation, static demos, CI metadata, and legacy runner ---
+!.fleet/**	# fleet configuration and coverage contract
+!*.md	# top-level documentation
+!**/*.md	# nested documentation
+!LICENCE	# license file
+!LICENSE	# license file
+!.github/**	# github workflow and copilot configurations
+!.gitignore	# git configuration
+!examples/**	# static HTML demo pages
+!SpecRunner.html	# legacy browser runner, queued for retirement in leviroutes-n0a
+!tests/**	# legacy tests, queued for retirement in leviroutes-n0a
+!lib/**	# legacy vendored jasmine, queued for retirement in leviroutes-n0a
