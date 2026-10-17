@@ -129,6 +129,21 @@ fast_cmd_val=$(HOME="$TEST_HOME" FLEET_CHECK_CONF="$ROOT/no-target.conf" bash "$
 [ "$cmd_val" = "bash tools/full-gate.sh" ] && ok "10a check-cmd.sh prints CHECK_CMD correctly" || bad "10a CHECK_CMD wrong" "$cmd_val"
 [ "$fast_cmd_val" = "bash tools/fast-gate.sh" ] && ok "10b check-cmd.sh prints CHECK_FAST_CMD correctly" || bad "10b CHECK_FAST_CMD wrong" "$fast_cmd_val"
 
+# 10c/10d. The no-work contract is the pair fleet-check actually consumes: a policy of 'unknown'
+# (the default when undeclared) makes every exempt-only change a non-verdict, and a regex that
+# does not match the marker the gate prints makes the declaration inert. Assert both halves,
+# and assert the regex against the marker the gate really emits for an exempt-only selection.
+no_work_policy=$(HOME="$TEST_HOME" FLEET_CHECK_CONF="$ROOT/no-target.conf" bash "$CHECK_CMD_SCRIPT" CHECK_FAST_NO_WORK_POLICY)
+[ "$no_work_policy" = "pass" ] && ok "10c check-cmd.sh exposes CHECK_FAST_NO_WORK_POLICY=pass" || bad "10c CHECK_FAST_NO_WORK_POLICY not pass" "got '$no_work_policy'"
+
+no_work_re=$(HOME="$TEST_HOME" FLEET_CHECK_CONF="$ROOT/no-target.conf" bash "$CHECK_CMD_SCRIPT" CHECK_FAST_NO_WORK_RE)
+exempt_marker=$(run --changed README.md | grep -F 'no suites affected' | head -1)
+if [ -n "$no_work_re" ] && [ -n "$exempt_marker" ] && grep -qE "$no_work_re" <<<"$exempt_marker"; then
+  ok "10d declared CHECK_FAST_NO_WORK_RE matches the exempt-only marker the gate prints"
+else
+  bad "10d CHECK_FAST_NO_WORK_RE does not match the gate's exempt-only marker" "regex='$no_work_re' marker='$exempt_marker'"
+fi
+
 # 11. check-cmd.sh --check verifies matching configuration
 TEST_TARGET="$ROOT/installed-check.conf"
 cp "$ROOT/repo/tools/check.conf" "$TEST_TARGET"
