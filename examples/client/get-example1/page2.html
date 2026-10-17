@@ -2,8 +2,9 @@
 <html>
   <head>
     <title>Get - Example 1 (Page 2)</title>
-    <script src="../../../routes.js"></script>
-    <script>
+    <script type="module">
+      import routes from '../../../src/routes.js';
+
       var app = new routes();
 
       app.get('page2.html', function() {
