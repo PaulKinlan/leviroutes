@@ -22,6 +22,38 @@ JOBS=${FAST_GATE_JOBS:-4}
 
 [ -f "$MAP" ] || { echo "fast-gate: no $MAP — the map IS the gate; refusing to guess" >&2; exit 1; }
 
+# Every non-exemption row must still describe something in the tree. A row left behind for a
+# path that was deleted (and so can never change again) is dead config, and dead config is
+# worse than a missing row: it turns a future change under that path from a loud 'unmapped'
+# failure into a PASS with coverage that never ran. leviroutes-n0a deleted SpecRunner.html,
+# tests/ and lib/ but re-mapped them to unrelated suites, so re-adding tests/x.js selected
+# spec/*.spec.mjs instead of failing loudly (leviroutes-62g). Retired paths lose their row.
+DEAD_ROWS=()
+while IFS=$'\t' read -r pat rest; do
+  case $pat in ''|\#*|\!*) continue ;; esac
+  case $pat in
+    *'/**')
+      # <dir>/** means "anything under this directory", so the directory is what must exist.
+      [ -d "$ROOT/${pat%'/**'}" ] || DEAD_ROWS+=("$pat")
+      ;;
+    *'*'*|*'?'*|*'['*)
+      echo "fast-gate: FAIL - map row '$pat' is not a supported shape: use <path> or <dir>/**." >&2
+      exit 1
+      ;;
+    *)
+      [ -e "$ROOT/$pat" ] || DEAD_ROWS+=("$pat")
+      ;;
+  esac
+done < "$MAP"
+
+if [ "${#DEAD_ROWS[@]}" -gt 0 ]; then
+  for pat in "${DEAD_ROWS[@]}"; do
+    echo "fast-gate: dead row: $pat matches nothing in the tree"
+  done
+  echo "fast-gate: FAIL - ${#DEAD_ROWS[@]} map row(s) name paths that no longer exist. Retired paths must lose their row, so a change there fails loudly as unmapped." >&2
+  exit 1
+fi
+
 LIST=0; BASE="${FAST_GATE_BASE:-}"; RUN_ALL=0; EXPLICIT=()
 while [ $# -gt 0 ]; do
   case $1 in
