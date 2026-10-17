@@ -14,7 +14,13 @@ has()   { grep -qF -- "$2" <<<"$1" && ok "$3" || bad "$3" "expected to find: $2"
 hasnt() { grep -qF -- "$2" <<<"$1" && bad "$3" "expected NOT to find: $2" || ok "$3"; }
 
 ROOT=$(mktemp -d); trap 'rm -rf "$ROOT"' EXIT
+# The throwaway repo is a REAL git repository: tools/check-cmd.sh --install exists to
+# stamp CHECK_FAST_CONTRACT_OWNER from `git rev-parse --git-common-dir` of this checkout,
+# and that branch is unreachable in a bare directory (leviroutes-81z). Global/system git
+# config is pinned so no assertion here depends on the machinery of the host.
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 mkdir -p "$ROOT/repo"
+git -C "$ROOT/repo" init -q
 cp -r "$HERE" "$ROOT/repo/tools"
 GATE="$ROOT/repo/tools/fast-gate.sh"
 CHECK_CMD_SCRIPT="$ROOT/repo/tools/check-cmd.sh"
@@ -163,12 +169,42 @@ diff_rc=0
 HOME="$TEST_HOME" FLEET_CHECK_CONF="$TEST_TARGET" bash "$CHECK_CMD_SCRIPT" --check >/dev/null 2>&1 || diff_rc=$?
 [ "$diff_rc" = 1 ] && ok "13 check-cmd.sh --check exits 1 on configuration drift" || bad "13 expected exit 1" "got $diff_rc"
 
-# 14. check-cmd.sh --install copies tracked config to target in isolated home
+# 14. check-cmd.sh --install copies tracked config to target in isolated home, stamping
+# the owner from THIS checkout. The owner line is the whole reason the tracked check.conf
+# is not copied verbatim: fleet-check scope_contract_for() compares it against the
+# consumer's git-common-dir and, on a mismatch, silently unsets the fast-gate contract
+# (PASS regex, no-work policy, coverage requirement). So it is asserted, not masked out.
 rm -f "$TEST_TARGET"
 install_rc=0
 HOME="$TEST_HOME" FLEET_CHECK_CONF="$TEST_TARGET" bash "$CHECK_CMD_SCRIPT" --install >/dev/null 2>&1 || install_rc=$?
-[ "$install_rc" = 0 ] && [ -f "$TEST_TARGET" ] && cmp -s <(sed 's|CHECK_FAST_CONTRACT_OWNER=.*||' "$ROOT/repo/tools/check.conf") <(sed 's|CHECK_FAST_CONTRACT_OWNER=.*||' "$TEST_TARGET") \
-  && ok "14 check-cmd.sh --install correctly installs configuration" || bad "14 check-cmd.sh --install failed" "rc=$install_rc"
+[ "$install_rc" = 0 ] && [ -f "$TEST_TARGET" ] \
+  && ok "14a check-cmd.sh --install writes the target configuration" \
+  || bad "14a check-cmd.sh --install failed" "rc=$install_rc"
+
+expected_owner=$(git -C "$ROOT/repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+installed_owner=$(HOME="$TEST_HOME" FLEET_CHECK_CONF="$TEST_TARGET" bash "$CHECK_CMD_SCRIPT" CHECK_FAST_CONTRACT_OWNER 2>/dev/null)
+[ -n "$expected_owner" ] && [ "$installed_owner" = "$expected_owner" ] \
+  && ok "14b --install stamps CHECK_FAST_CONTRACT_OWNER with this checkout's git-common-dir" \
+  || bad "14b CHECK_FAST_CONTRACT_OWNER was not stamped from this checkout" "expected '$expected_owner', got '$installed_owner'"
+
+if cmp -s <(sed 's|^CHECK_FAST_CONTRACT_OWNER=.*||' "$ROOT/repo/tools/check.conf") <(sed 's|^CHECK_FAST_CONTRACT_OWNER=.*||' "$TEST_TARGET"); then
+  ok "14c --install preserves every other setting verbatim"
+else
+  bad "14c installed configuration differs from the tracked defaults outside the owner line" \
+      "$(diff -u <(sed 's|^CHECK_FAST_CONTRACT_OWNER=.*||' "$ROOT/repo/tools/check.conf") <(sed 's|^CHECK_FAST_CONTRACT_OWNER=.*||' "$TEST_TARGET") | head -20)"
+fi
+
+# 14d. The other half of the branch: outside a git checkout --install copies the tracked
+# config unchanged instead of inventing an owner.
+NOGIT_REPO="$ROOT/nogit-repo"; mkdir -p "$NOGIT_REPO"; cp -r "$ROOT/repo/tools" "$NOGIT_REPO/tools"
+NOGIT_TARGET="$ROOT/nogit-check.conf"
+HOME="$TEST_HOME" FLEET_CHECK_CONF="$NOGIT_TARGET" bash "$NOGIT_REPO/tools/check-cmd.sh" --install >/dev/null 2>&1 || true
+if cmp -s "$NOGIT_REPO/tools/check.conf" "$NOGIT_TARGET"; then
+  ok "14d --install outside a git checkout copies the tracked config verbatim"
+else
+  bad "14d non-git --install changed the configuration" \
+      "$(diff -u "$NOGIT_REPO/tools/check.conf" "$NOGIT_TARGET" | head -20)"
+fi
 
 echo "=== Section 3: full-gate.sh execution and step orchestration ==="
 
