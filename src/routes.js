@@ -22,7 +22,11 @@ const routes = function() {
   this.parseRoute = function(path) {
     this.parseGroups = function(loc) {
       var nameRegexp = new RegExp(":([^/.\\\\]+)", "g"); 
-      var newRegexp = "" + loc;
+      // A literal dot in a route is path punctuation, not the regular-expression "any
+      // character": without this, '/:category.:format' matches '/foo' with
+      // {category: 'f', format: 'o'}, and '/a/b.json' with {category: 'b'}. Other
+      // regular-expression syntax in a route is deliberately left untouched.
+      var newRegexp = "" + loc.replace(/\./g, "\\.");
       var groups = {};
       var matches = null;
       var i = 0;
@@ -33,7 +37,10 @@ const routes = function() {
         newRegexp = newRegexp.replace(matches[0], "([^/.\\\\]+)"); 
       }
 
-      newRegexp += "$"; // Only do a full string match
+      // Match the whole path: end-anchored so '/category' does not match
+      // '/category/extra', start-anchored so '/user/:id' does not match '/deep/user/42'
+      // (the old end-only anchor was an accident that made every route a suffix match).
+      newRegexp = "^" + newRegexp + "$"; 
 
       return { "groups" : groups, "regexp": new RegExp(newRegexp)};
     };
@@ -45,10 +52,25 @@ const routes = function() {
     _middleware.push(middleware);
   };
 
+  // Routes match a path, so an absolute URL (a form's action resolves to one) is
+  // reduced to its pathname before matching. Without this, anchoring at '^' would
+  // stop POST interception working, which the end-only anchor used to hide.
+  var pathnameOf = function(url) {
+    if (typeof url !== "string") return url;
+
+    try {
+      var base = (typeof document !== "undefined" && document.baseURI) || "http://localhost/";
+      return new URL(url, base).pathname;
+    } catch (e) {
+      return url;
+    }
+  };
+
   var matchRoute = function(url, e) {
     var route = null;
+    var path = pathnameOf(url);
     for(var i = 0; route = _routes[i]; i ++) {
-      var routeMatch = route.regex.regexp.exec(url);
+      var routeMatch = route.regex.regexp.exec(path);
       if(!!routeMatch == false) continue;
       
       var params = {};
