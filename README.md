@@ -77,6 +77,21 @@ app.get("/:category.:format", function(req) {
 });
 ```
 
+### Route matching
+
+A route is matched against the **whole pathname**, and a literal `.` in a route is a literal dot:
+
+* `/user/:id` matches `/user/42` but not `/deep/user/42`, and `/` matches only `/` (not `/anything/`).
+* `/:category.:format` matches `/foo.json` (`category: "foo"`, `format: "json"`) but not `/foo`.
+* A named parameter stops at `/` and `.`, so `/files/:name` does not match `/files/report.pdf` -
+  use `/files/:name.:ext`.
+* Form actions resolve to absolute URLs; the pathname is matched, so `action="http://other.test/test"`
+  reaches `app.post("/test")` while `action="http://other.test/deep/test"` does not.
+
+The rest of a route string is still treated as regular-expression syntax (`/foo+`, `/a|b`), which a
+future major version will replace with URL Pattern semantics - see
+[`docs/urlpattern-investigation.md`](docs/urlpattern-investigation.md).
+
 ### POST Request Handling
 
 LeviRoutes can also intercept POST requests via forms, intercept all submits, and naturally let through requests that don't match the path, whilst firing your callback if there is a match.
