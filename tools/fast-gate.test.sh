@@ -33,6 +33,7 @@ touch "$ROOT/repo/spec/routeexecution.spec.mjs"
 touch "$ROOT/repo/spec/routemanagement.spec.mjs"
 touch "$ROOT/repo/spec/routeparsing.spec.mjs"
 touch "$ROOT/repo/spec/routesframework.spec.mjs"
+touch "$ROOT/repo/spec/fixtureisolation.spec.mjs"
 
 # Stub runner: records invocations, exits 0 (or 1 if STUB_FAIL=1)
 cat > "$ROOT/runner" <<'STUB'
@@ -59,9 +60,10 @@ has "$out" "fast-gate: running: spec/routeexecution.spec.mjs" "1b ... and routee
 has "$out" "fast-gate: running: spec/routemanagement.spec.mjs" "1c ... and routemanagement spec"
 has "$out" "fast-gate: running: spec/routeparsing.spec.mjs" "1d ... and routeparsing spec"
 has "$out" "fast-gate: running: spec/routesframework.spec.mjs" "1e ... and routesframework spec"
-has "$out" "fast-gate: passed: spec/middleware.spec.mjs" "1f passing suite is reported with positive marker"
-has "$out" "fast-gate: PASS (5 suite(s), 1 changed file(s))" "1g terminal PASS line matches producer contract"
-[ "$rc" = 0 ] && ok "1h exit 0 on success" || bad "1h expected exit 0" "got $rc"
+has "$out" "fast-gate: running: spec/fixtureisolation.spec.mjs" "1f ... and the fixture-isolation spec"
+has "$out" "fast-gate: passed: spec/middleware.spec.mjs" "1g passing suite is reported with positive marker"
+has "$out" "fast-gate: PASS (6 suite(s), 1 changed file(s))" "1h terminal PASS line matches producer contract"
+[ "$rc" = 0 ] && ok "1i exit 0 on success" || bad "1i expected exit 0" "got $rc"
 
 # 2. Unmapped changed file fails loudly
 out=$(run --changed src/unknown.js)
@@ -123,6 +125,29 @@ rc=$(run_rc --changed src/routes.js)
 has "$out" "the map IS the gate" "9a missing map refuses to guess"
 [ "$rc" != 0 ] && ok "9b missing map exits non-zero" || bad "9b expected non-zero exit" "got $rc"
 mv "$ROOT/map.hidden" "$ROOT/repo/tools/suite-map.tsv"
+
+# 9c. Every spec file in the checkout is selected by at least one map row. A spec that no
+# row names only runs when it is itself changed, so a src/ change silently skips it
+# (leviroutes-gr4: spec/fixtureisolation.spec.mjs was omitted exactly this way, and only the
+# gate's coverage warning noticed). Reads the real checkout, not the throwaway repo.
+REAL_ROOT=$(cd "$HERE/.." && pwd)
+REAL_MAP="$REAL_ROOT/tools/suite-map.tsv"
+if [ ! -f "$REAL_MAP" ]; then
+  bad "9c cannot read the checkout's suite map" "$REAL_MAP"
+else
+  unselected=()
+  for spec_file in "$REAL_ROOT"/spec/*.spec.mjs; do
+    [ -e "$spec_file" ] || continue
+    spec_name="spec/$(basename "$spec_file")"
+    grep -vE '^(#|!|[[:space:]]*$)' "$REAL_MAP" | cut -f2- | tr -s '[:space:]' '\n' | grep -qxF -- "$spec_name" \
+      || unselected+=("$spec_name")
+  done
+  if [ "${#unselected[@]}" -eq 0 ]; then
+    ok "9c every spec file is selected by at least one suite-map row"
+  else
+    bad "9c spec files named in no suite-map row" "${unselected[*]}"
+  fi
+fi
 
 echo "=== Section 2: check-cmd.sh and check.conf validation ==="
 

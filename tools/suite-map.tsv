@@ -4,15 +4,17 @@
 #   !<glob> (exemption with reason)
 
 # --- Runtime source to covering specs ---
-src/routes.js	spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs
+src/routes.js	spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs spec/fixtureisolation.spec.mjs
 
 # --- Test framework / fixtures ---
-spec/helpers/**	spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs
-spec/support/**	spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs
+# spec/fixtureisolation.spec.mjs constructs routers and pins history.pushState/listener
+# isolation, so it belongs on every row that can change router construction or the fixtures.
+spec/helpers/**	spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs spec/fixtureisolation.spec.mjs
+spec/support/**	spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs spec/fixtureisolation.spec.mjs
 
 # --- Packaging, lockfile and gate tooling ---
-package.json	tools/verify-package.mjs spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs
-package-lock.json	tools/verify-package.mjs spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs
+package.json	tools/verify-package.mjs spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs spec/fixtureisolation.spec.mjs
+package-lock.json	tools/verify-package.mjs spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs spec/fixtureisolation.spec.mjs
 tools/verify-package.mjs	tools/verify-package.mjs
 tools/fast-gate.sh	tools/fast-gate.test.sh tools/verify-package.mjs
 tools/fast-gate.test.sh	tools/fast-gate.test.sh
