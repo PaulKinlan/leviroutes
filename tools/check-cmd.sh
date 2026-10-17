@@ -23,7 +23,10 @@ case "${1:-}" in
     else
       cp "$TRACKED" "$DEST"
     fi
-    [ -n "$REPO_CONF" ] && cp "$DEST" "$REPO_CONF"
+    if [ -n "$REPO_CONF" ]; then
+      mkdir -p "$(dirname "$REPO_CONF")"
+      cp "$DEST" "$REPO_CONF"
+    fi
     echo "Installed check configuration from $TRACKED to $DEST"
     exit 0
     ;;

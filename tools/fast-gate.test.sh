@@ -120,9 +120,12 @@ mv "$ROOT/map.hidden" "$ROOT/repo/tools/suite-map.tsv"
 
 echo "=== Section 2: check-cmd.sh and check.conf validation ==="
 
-# 10. check-cmd.sh outputs expected field values from check.conf
-cmd_val=$(bash "$CHECK_CMD_SCRIPT" CHECK_CMD)
-fast_cmd_val=$(bash "$CHECK_CMD_SCRIPT" CHECK_FAST_CMD)
+TEST_HOME="$ROOT/home"
+mkdir -p "$TEST_HOME"
+
+# 10. check-cmd.sh outputs expected field values from tracked check.conf (isolated from any installed conf)
+cmd_val=$(HOME="$TEST_HOME" FLEET_CHECK_CONF="$ROOT/no-target.conf" bash "$CHECK_CMD_SCRIPT" CHECK_CMD)
+fast_cmd_val=$(HOME="$TEST_HOME" FLEET_CHECK_CONF="$ROOT/no-target.conf" bash "$CHECK_CMD_SCRIPT" CHECK_FAST_CMD)
 [ "$cmd_val" = "bash tools/full-gate.sh" ] && ok "10a check-cmd.sh prints CHECK_CMD correctly" || bad "10a CHECK_CMD wrong" "$cmd_val"
 [ "$fast_cmd_val" = "bash tools/fast-gate.sh" ] && ok "10b check-cmd.sh prints CHECK_FAST_CMD correctly" || bad "10b CHECK_FAST_CMD wrong" "$fast_cmd_val"
 
@@ -130,25 +133,25 @@ fast_cmd_val=$(bash "$CHECK_CMD_SCRIPT" CHECK_FAST_CMD)
 TEST_TARGET="$ROOT/installed-check.conf"
 cp "$ROOT/repo/tools/check.conf" "$TEST_TARGET"
 check_rc=0
-FLEET_CHECK_CONF="$TEST_TARGET" bash "$CHECK_CMD_SCRIPT" --check >/dev/null 2>&1 || check_rc=$?
+HOME="$TEST_HOME" FLEET_CHECK_CONF="$TEST_TARGET" bash "$CHECK_CMD_SCRIPT" --check >/dev/null 2>&1 || check_rc=$?
 [ "$check_rc" = 0 ] && ok "11 check-cmd.sh --check passes on matching configuration" || bad "11 expected exit 0" "got $check_rc"
 
 # 12. check-cmd.sh --check exits 3 when target config is missing
 rm -f "$TEST_TARGET"
 missing_rc=0
-FLEET_CHECK_CONF="$TEST_TARGET" bash "$CHECK_CMD_SCRIPT" --check >/dev/null 2>&1 || missing_rc=$?
+HOME="$TEST_HOME" FLEET_CHECK_CONF="$TEST_TARGET" bash "$CHECK_CMD_SCRIPT" --check >/dev/null 2>&1 || missing_rc=$?
 [ "$missing_rc" = 3 ] && ok "12 check-cmd.sh --check exits 3 on missing configuration" || bad "12 expected exit 3" "got $missing_rc"
 
 # 13. check-cmd.sh --check exits 1 when target config differs
 echo 'CHECK_CMD="bogus"' > "$TEST_TARGET"
 diff_rc=0
-FLEET_CHECK_CONF="$TEST_TARGET" bash "$CHECK_CMD_SCRIPT" --check >/dev/null 2>&1 || diff_rc=$?
+HOME="$TEST_HOME" FLEET_CHECK_CONF="$TEST_TARGET" bash "$CHECK_CMD_SCRIPT" --check >/dev/null 2>&1 || diff_rc=$?
 [ "$diff_rc" = 1 ] && ok "13 check-cmd.sh --check exits 1 on configuration drift" || bad "13 expected exit 1" "got $diff_rc"
 
-# 14. check-cmd.sh --install copies tracked config to target
+# 14. check-cmd.sh --install copies tracked config to target in isolated home
 rm -f "$TEST_TARGET"
 install_rc=0
-FLEET_CHECK_CONF="$TEST_TARGET" bash "$CHECK_CMD_SCRIPT" --install >/dev/null 2>&1 || install_rc=$?
+HOME="$TEST_HOME" FLEET_CHECK_CONF="$TEST_TARGET" bash "$CHECK_CMD_SCRIPT" --install >/dev/null 2>&1 || install_rc=$?
 [ "$install_rc" = 0 ] && [ -f "$TEST_TARGET" ] && cmp -s <(sed 's|CHECK_FAST_CONTRACT_OWNER=.*||' "$ROOT/repo/tools/check.conf") <(sed 's|CHECK_FAST_CONTRACT_OWNER=.*||' "$TEST_TARGET") \
   && ok "14 check-cmd.sh --install correctly installs configuration" || bad "14 check-cmd.sh --install failed" "rc=$install_rc"
 
