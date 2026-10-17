@@ -68,6 +68,15 @@ Matching itself is `route.regexp.exec(url)` in registration order, first match w
 called with `document.location.pathname` (a path) on navigation and with `e.target.action` (an
 absolute URL) on form submits — the same loose regex is applied to both.
 
+> **Status note (2026-10-17):** this section describes the matcher *before* `leviroutes-hiw`
+> (landed in 425f12f, "match routes against the whole pathname with literal dots"). The current
+> matcher escapes literal `.` in the route text, anchors at `^` as well as `$`, and reduces an
+> absolute-URL input to its pathname before matching. Consequence 1 is narrowed (`.` is now
+> literal; other regex syntax like `/foo+` and `/a|b` still works) and consequence 3 is gone (no
+> more suffix matching). Consequence 2 is unchanged on purpose: named groups still exclude `.`,
+> so `/files/:name` still rejects `/files/report.pdf` — deferred to the major-version matcher
+> decision (`leviroutes-5z6`).
+
 ## 3. What `URLPattern` gives us
 
 A `URLPattern` constructed from `{ pathname }` compiles the pattern to a matcher over the *parsed*
@@ -125,6 +134,13 @@ The bold rows are the interesting ones. Four of them (`.` as any-char, `/`-suffi
 `/foo/` matching `/`, `/files/report.pdf` rejected) are bugs or surprises in today's matcher that
 `URLPattern` gets right; three (`/foo+`, `/a|b`, and the group semantics) are existing users who
 would break.
+
+> **Status note (2026-10-17):** the "leviroutes today" column is the pre-`leviroutes-hiw` matcher.
+> Since 425f12f the bold rows read differently: `/foo/` no longer matches `/`, `/a/b` no longer
+> matches `/:category`, and `/foo` / `/a/b.json` no longer match `/:category.:format`. The fourth
+> surprise — `/files/:name` rejecting `/files/report.pdf` — is deliberately **unchanged** (named
+> params still stop at `.`), deferred to `leviroutes-5z6`. So of the four bugs `URLPattern` fixes:
+> three are now fixed in the default matcher, one deferred.
 
 ## 5. Migration recipes (all verified)
 

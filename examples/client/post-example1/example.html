@@ -2,11 +2,17 @@
 <html>
   <head>
     <title>Post - Example 1</title>
-    <script src="../../../routes.js"></script>
-    <script>
+    <script type="module">
+      import routes from '../../../src/routes.js';
+
       var app = new routes();
 
-      app.post('post.html', function(e) {
+      // Routes match the whole pathname (anchored ^...$), so register the form's
+      // action under this page's directory - this works whether the server root
+      // is the repo root or this example directory.
+      var base = location.pathname.replace(/[^/]*$/, '');
+
+      app.post(base + 'post.html', function(e) {
         alert('Captured the POST, value = ' + e.values.test);
         return false;
       });
@@ -17,7 +23,10 @@
     <p>This is an example of capturing a POST, we have two forms, the 1st will be intercepted by the framework, the 2nd will not and will be passed through to the server</p>
     <pre><code>var app = new routes();
 
-app.get('post.html', function(e) {
+// Routes match the whole pathname, so prefix with this page's directory.
+var base = location.pathname.replace(/[^/]*$/, '');
+
+app.post(base + 'post.html', function(e) {
   alert('Captured the POST, value = ' + e.values.test);
 });</code></pre>
 

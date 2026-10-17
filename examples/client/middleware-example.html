@@ -2,14 +2,15 @@
 <html>
 <head>
   <title>LeviRoutes Middleware Example</title>
-  <script src="../../routes.js"></script>
 </head>
 <body>
   <h1>LeviRoutes Middleware Example</h1>
   
   <div id="output"></div>
   
-  <script>
+  <script type="module">
+    import routes from '../../src/routes.js';
+
     var app = new routes();
     var output = document.getElementById('output');
     

@@ -98,8 +98,7 @@ A full-featured single-page application showcasing all LeviRoutes features. Incl
 
 ## Notes
 
-- Existing examples (GET, POST) use the classic script format with `routes.js` from the project root for backward compatibility
-- New examples (Named Parameters, SPA) use modern ES module syntax with `src/routes.js` - **this is the recommended approach for new projects**
+- All examples use modern ES module syntax, importing `src/routes.js` directly - **this is the recommended approach**
 - Examples are designed to work in modern browsers that support ES6+ and HTML5 History API
 - The examples demonstrate client-side routing only (no server-side components required)
 - For best results, ensure you start the web server from the project root directory
