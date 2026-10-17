@@ -21,7 +21,6 @@ spec/
   helpers/           # Test helpers
 examples/
   client/            # Example implementations
-tests/               # Legacy test files
 dist/
   routes.min.js      # Minified build output (generated)
 ```
