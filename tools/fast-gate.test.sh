@@ -74,7 +74,7 @@ run_rc() { ( cd "$ROOT/repo" && FAST_GATE_RUNNER="$FAST_GATE_RUNNER" RUN_LOG="$R
 
 echo "=== Section 1: fast-gate.sh selection and fail-loud behaviour ==="
 
-# 1. Mapped source file selects all 5 specs and executes them
+# 1. Mapped source file selects all 8 specs and executes them
 rm -f "$RUN_LOG"
 out=$(run --changed src/routes.js)
 rc=$(run_rc --changed src/routes.js)
@@ -85,8 +85,9 @@ has "$out" "fast-gate: running: spec/routeparsing.spec.mjs" "1d ... and routepar
 has "$out" "fast-gate: running: spec/routesframework.spec.mjs" "1e ... and routesframework spec"
 has "$out" "fast-gate: running: spec/fixtureisolation.spec.mjs" "1f ... and the fixture-isolation spec"
 has "$out" "fast-gate: running: spec/urlpatternmatcher.spec.mjs" "1g ... and the urlpattern matcher spec"
+has "$out" "fast-gate: running: spec/serverdispatch.spec.mjs" "1g2 ... and the server dispatch spec"
 has "$out" "fast-gate: passed: spec/middleware.spec.mjs" "1h passing suite is reported with positive marker"
-has "$out" "fast-gate: PASS (7 suite(s), 1 changed file(s))" "1i terminal PASS line matches producer contract"
+has "$out" "fast-gate: PASS (8 suite(s), 1 changed file(s))" "1i terminal PASS line matches producer contract"
 [ "$rc" = 0 ] && ok "1j exit 0 on success" || bad "1j expected exit 0" "got $rc"
 
 # 2. Unmapped changed file fails loudly
