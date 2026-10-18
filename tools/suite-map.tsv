@@ -4,7 +4,7 @@
 #   !<glob> (exemption with reason)
 
 # --- Runtime source to covering specs ---
-src/routes.js	spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs spec/fixtureisolation.spec.mjs spec/urlpatternmatcher.spec.mjs
+src/routes.js	spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs spec/fixtureisolation.spec.mjs spec/urlpatternmatcher.spec.mjs spec/serverdispatch.spec.mjs
 
 # --- Test framework / fixtures ---
 # spec/fixtureisolation.spec.mjs constructs routers and pins history.pushState/listener
@@ -23,6 +23,7 @@ tools/suite-map.tsv	tools/fast-gate.test.sh
 tools/check.conf	tools/fast-gate.test.sh tools/verify-package.mjs
 tools/check-cmd.sh	tools/fast-gate.test.sh tools/verify-package.mjs
 spec/urlpatternmatcher.spec.mjs	spec/urlpatternmatcher.spec.mjs
+spec/serverdispatch.spec.mjs	spec/serverdispatch.spec.mjs
 
 # Retired paths (SpecRunner.html, lib/, tests/) deliberately have no rows: nothing exists there, so
 # a change under them must fail loudly as 'unmapped' rather than select unrelated suites
