@@ -4,7 +4,7 @@ This directory contains working examples demonstrating the features of LeviRoute
 
 ## Running the Examples
 
-To run these examples locally, you'll need a local web server. You can use any of these options:
+To run these examples locally, you'll need a local web server. **You must start the server from the project root directory** (the directory containing this repository's `src/` folder): the examples import `../../../src/routes.js`, which 404s if the server root is an example subdirectory. You can use any of these options:
 
 ### Using Python
 ```bash
@@ -101,7 +101,7 @@ A full-featured single-page application showcasing all LeviRoutes features. Incl
 - All examples use modern ES module syntax, importing `src/routes.js` directly - **this is the recommended approach**
 - Examples are designed to work in modern browsers that support ES6+ and HTML5 History API
 - The examples demonstrate client-side routing only (no server-side components required)
-- For best results, ensure you start the web server from the project root directory
+- You must start the web server from the project root directory; the `src/routes.js` import 404s otherwise (serving from an example subdirectory is broken, not a lower-quality option)
 
 ## Building Your Own
 
