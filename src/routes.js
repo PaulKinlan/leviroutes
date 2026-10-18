@@ -104,11 +104,15 @@ const routes = function(options) {
     }
   };
 
-  var matchRoute = function(url, e) {
+  var matchRoute = function(url, e, server) {
     var route = null;
     var path = pathnameOf(url);
     for(var i = 0; route = _routes[i]; i ++) {
       var params = null;
+
+      // Server dispatch is method-aware; the browser paths pass no server argument
+      // and keep the historical behaviour of matching a URL regardless of method.
+      if(server && route.method !== server.method) continue;
 
       if (route.regex.pattern) {
         // Matching is on the pathname, so the origin is irrelevant - but it must be
@@ -146,8 +150,22 @@ const routes = function(options) {
           if(!!item.name) values[item.name] = item.value;
         }
       }
-      
+
+      // On the server there is no form to read values from; the query string is
+      // the equivalent carrier, so its parameters become req.values.
+      if(server) {
+        try {
+          var parsed = new URL(url, "http://localhost/");
+          parsed.searchParams.forEach(function(value, name) { values[name] = value; });
+        } catch (err) { /* an unparseable URL simply has no values */ }
+      }
+
       var req = {"url": url, "params": params, "values" : values, "e": e};
+      if(server) {
+        req.method = server.method;
+        req.request = server.request;
+        req.response = server.response;
+      }
       
       // Execute middleware chain
       var middlewareIndex = 0;
@@ -180,6 +198,31 @@ const routes = function(options) {
 
   this.test = function(url) {
     matchRoute(url);
+  };
+
+  // Server-side entry point (GH #1): route a Node http.IncomingMessage, a Web
+  // Fetch Request, or a plain URL string through the same route table the
+  // browser uses. Matching honours the method each route was registered with
+  // (get/post), unlike the browser paths which stay method-agnostic for
+  // backwards compatibility. Returns true when a route matched, so a server
+  // can send its own 404 when false.
+  this.dispatch = function(request, response) {
+    var url;
+    var method;
+
+    if(typeof request === "string") {
+      url = request;
+      method = "get";
+    } else if(request && typeof request.url === "string") {
+      // http.IncomingMessage exposes a relative url ('/path?query'); a Fetch
+      // Request exposes an absolute one - pathnameOf() reduces both.
+      url = request.url;
+      method = (request.method || "get").toLowerCase();
+    } else {
+      throw new Error("leviroutes: dispatch() needs a URL string, an http.IncomingMessage, or a Fetch Request");
+    }
+
+    return matchRoute(url, null, {method: method, request: request, response: response});
   };
 
   this.getRoutes = function() {

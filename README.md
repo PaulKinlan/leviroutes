@@ -159,6 +159,47 @@ app.get("/", function(req) {
 
 Middleware functions are executed in the order they are registered, before any route handler is called.
 
+## Server-side dispatch (Node.js)
+
+The same route table works on the server. `dispatch()` routes a Node
+`http.IncomingMessage`, a Web Fetch [`Request`](https://developer.mozilla.org/en-US/docs/Web/API/Request),
+or a plain URL string, honouring the method each route was registered with. It returns
+`true` when a route matched, so your server can send its own 404 when it returns `false`.
+
+```javascript
+import http from 'node:http';
+import routes from 'leviroutes';
+
+const app = new routes();
+
+app.get("/user/:id", function(req) {
+  req.response.writeHead(200, { "Content-Type": "application/json" });
+  req.response.end(JSON.stringify({ id: req.params.id }));
+});
+
+app.post("/user", function(req) {
+  // ...
+});
+
+http.createServer(function(request, response) {
+  if (!app.dispatch(request, response)) {
+    response.writeHead(404);
+    response.end("Not found");
+  }
+}).listen(3000);
+```
+
+In dispatch mode the `req` passed to middleware and route callbacks gains:
+
+* `req.method` — the lowercased HTTP method (`"get"`, `"post"`, ...)
+* `req.request` / `req.response` — the original objects passed to `dispatch()`
+* `req.values` — parsed from the query string (the server equivalent of the
+  browser's form-field values)
+
+Browser behaviour is unchanged: `popstate`, form interception and `test()` still
+match a URL regardless of the method a route was registered with. Request bodies
+are not parsed; stream them from `req.request` inside your route as usual.
+
 ## Examples
 
 Check out the [examples](examples/) directory for complete working examples demonstrating:
