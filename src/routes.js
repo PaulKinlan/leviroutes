@@ -112,7 +112,9 @@ const routes = function(options) {
 
       // Server dispatch is method-aware; the browser paths pass no server argument
       // and keep the historical behaviour of matching a URL regardless of method.
-      if(server && route.method !== server.method) continue;
+      // matchMethod differs from the request's method only for HEAD, which is
+      // routed to GET handlers (RFC 9110 s9.3.2: HEAD is GET without the body).
+      if(server && route.method !== server.matchMethod) continue;
 
       if (route.regex.pattern) {
         // Matching is on the pathname, so the origin is irrelevant - but it must be
@@ -222,7 +224,12 @@ const routes = function(options) {
       throw new Error("leviroutes: dispatch() needs a URL string, an http.IncomingMessage, or a Fetch Request");
     }
 
-    return matchRoute(url, null, {method: method, request: request, response: response});
+    // HEAD is defined as GET without the body, so it routes to GET handlers; the
+    // handler still writes its body and the server runtime strips it. req.method
+    // keeps the real method so a handler can tell the two apart.
+    var matchMethod = method === "head" ? "get" : method;
+
+    return matchRoute(url, null, {method: method, matchMethod: matchMethod, request: request, response: response});
   };
 
   this.getRoutes = function() {

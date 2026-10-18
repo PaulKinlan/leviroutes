@@ -191,10 +191,15 @@ http.createServer(function(request, response) {
 
 In dispatch mode the `req` passed to middleware and route callbacks gains:
 
-* `req.method` — the lowercased HTTP method (`"get"`, `"post"`, ...)
+* `req.method` — the lowercased HTTP method of the request (`"get"`, `"post"`, ...)
 * `req.request` / `req.response` — the original objects passed to `dispatch()`
 * `req.values` — parsed from the query string (the server equivalent of the
   browser's form-field values)
+
+Routes are registered with `get()` and `post()`. A `HEAD` request is routed to the
+matching `get()` handler (RFC 9110: HEAD is GET without the body — write the body
+normally and the server runtime strips it); `req.method` is still `"head"`. Other
+verbs do not match and `dispatch()` returns `false`.
 
 Browser behaviour is unchanged: `popstate`, form interception and `test()` still
 match a URL regardless of the method a route was registered with. Request bodies

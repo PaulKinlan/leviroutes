@@ -67,6 +67,21 @@ describe("server dispatch", function() {
     expect(fired).toEqual(["post", "get"]);
   });
 
+  it("should route HEAD to the get handler, reporting the real method", function() {
+    var seen = null;
+    r.get("/item", function(req) { seen = req; });
+
+    // RFC 9110 s9.3.2: HEAD is GET without the body; Node strips the body itself.
+    expect(r.dispatch({ url: "/item", method: "HEAD" })).toEqual(true);
+    expect(seen.method).toEqual("head");
+  });
+
+  it("should not route HEAD to a post-only route", function() {
+    r.post("/item", function() {});
+
+    expect(r.dispatch({ url: "/item", method: "HEAD" })).toEqual(false);
+  });
+
   it("should return false when no route matches, so the server can 404", function() {
     r.get("/exists", function() {});
 
