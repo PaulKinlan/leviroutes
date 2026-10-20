@@ -45,12 +45,8 @@ for (const entry of requiredEntries) {
 
 // Validate underlying scripts invoked by the prepublish lifecycle
 const testBody = (pkg.scripts?.test || '').trim();
-if (!testBody || /[;&|><$`\\(){}\n\r]/.test(testBody)) {
-  console.error('verify-package: FAIL - package.json scripts.test is missing or contains forbidden shell metacharacters');
-  process.exit(1);
-}
-if (!/^(?:[A-Za-z0-9_]+=[A-Za-z0-9_.-]+\s+)*(?:jasmine)(?:\s+(?!--help\b|-h\b)[A-Za-z0-9_.-]+)*$/.test(testBody)) {
-  console.error(`verify-package: FAIL - package.json scripts.test must resolve to a valid runner command (got: ${testBody})`);
+if (testBody !== 'jasmine') {
+  console.error(`verify-package: FAIL - package.json scripts.test must be exactly "jasmine" (got: ${testBody})`);
   process.exit(1);
 }
 
@@ -61,8 +57,14 @@ if (!verifyBody || verifyBody !== 'node tools/verify-package.mjs') {
 }
 
 const buildBody = (pkg.scripts?.build || '').trim();
-if (!buildBody || /[;&|><$`\\(){}\n\r]/.test(buildBody) || !/^(?:npm\s+run\s+build:min|terser\b.*)$/.test(buildBody)) {
-  console.error('verify-package: FAIL - package.json scripts.build must resolve to a valid build command (npm run build:min)');
+if (buildBody !== 'npm run build:min') {
+  console.error(`verify-package: FAIL - package.json scripts.build must be exactly "npm run build:min" (got: ${buildBody})`);
+  process.exit(1);
+}
+
+const buildMinBody = (pkg.scripts?.['build:min'] || '').trim();
+if (!buildMinBody.startsWith('terser src/routes.js -o dist/routes.min.js')) {
+  console.error(`verify-package: FAIL - package.json scripts["build:min"] must compile src/routes.js to dist/routes.min.js (got: ${buildMinBody})`);
   process.exit(1);
 }
 
@@ -88,9 +90,9 @@ if (commands.length === 0) {
   process.exit(1);
 }
 
-const testPattern = /^(?:[A-Za-z0-9_]+=[A-Za-z0-9_.-]+\s+)*(?:npm\s+(?:run\s+)?test|jasmine)$/;
-const verifyPattern = /^(?:[A-Za-z0-9_]+=[A-Za-z0-9_.-]+\s+)*(?:npm\s+run\s+verify:package|node\s+tools\/verify-package\.mjs)$/;
-const buildPattern = /^(?:[A-Za-z0-9_]+=[A-Za-z0-9_.-]+\s+)*(?:npm\s+run\s+build(?::min)?)$/;
+const testPattern = /^(?:npm\s+(?:run\s+)?test|jasmine)$/;
+const verifyPattern = /^(?:npm\s+run\s+verify:package|node\s+tools\/verify-package\.mjs)$/;
+const buildPattern = /^(?:npm\s+run\s+build(?::min)?)$/;
 
 let testIdx = -1;
 let verifyIdx = -1;
