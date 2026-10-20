@@ -4,7 +4,7 @@ This directory contains working examples demonstrating the features of LeviRoute
 
 ## Running the Examples
 
-To run these examples locally, you'll need a local web server. **You must start the server from the project root directory** (the directory containing this repository's `src/` folder): the examples import `../../../src/routes.js`, which 404s if the server root is an example subdirectory. You can use any of these options:
+To run these examples locally, you'll need a local web server. **You must start the server from the project root directory** (the directory containing this repository's `src/` folder): the client examples live under `client/` and import `../../../src/routes.js` (or `../../src/routes.js` for `client/middleware-example.html`), which 404s if the server root is an example subdirectory. You can use any of these options:
 
 ### Using Python
 ```bash
@@ -29,7 +29,9 @@ Then navigate to `http://localhost:8000/examples/` in your browser to see the ex
 
 ## Available Examples
 
-### 1. GET Example (`get-example1/`)
+All client examples live under the `client/` subdirectory.
+
+### 1. GET Example (`client/get-example1/`)
 **Files:** `example.html`, `page2.html`
 
 Demonstrates basic GET routing with HTML5 History API. Shows how to:
@@ -39,7 +41,7 @@ Demonstrates basic GET routing with HTML5 History API. Shows how to:
 
 **Try it:** Click between pages and use browser back/forward buttons to see routes trigger.
 
-### 2. POST Example (`post-example1/`)
+### 2. POST Example (`client/post-example1/`)
 **Files:** `example.html`, `post2.html`
 
 Demonstrates POST form interception. Shows how to:
@@ -50,7 +52,7 @@ Demonstrates POST form interception. Shows how to:
 
 **Try it:** Submit the forms to see the difference between intercepted and non-intercepted forms.
 
-### 3. Middleware Example (`middleware-example.html`)
+### 3. Middleware Example (`client/middleware-example.html`)
 
 Demonstrates the middleware system. Shows how to:
 - Register multiple middleware functions
@@ -60,7 +62,7 @@ Demonstrates the middleware system. Shows how to:
 
 **Try it:** Open the page to see middleware execution logged in order.
 
-### 4. Named Parameters Example (`named-params-example/index.html`)
+### 4. Named Parameters Example (`client/named-params-example/index.html`)
 
 Comprehensive demonstration of named parameters in routes. Shows how to:
 - Define routes with single parameters (`:username`)
@@ -71,7 +73,7 @@ Comprehensive demonstration of named parameters in routes. Shows how to:
 
 **Try it:** Click the navigation links to see how parameters are extracted and displayed.
 
-### 5. Complete SPA Example (`spa-example/index.html`)
+### 5. Complete SPA Example (`client/spa-example/index.html`)
 
 A full-featured single-page application showcasing all LeviRoutes features. Includes:
 - Multiple pages with navigation
