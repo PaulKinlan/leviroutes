@@ -46,19 +46,46 @@ for (const entry of requiredEntries) {
 // Assert prepublishOnly script enforces tests and package verification before publishing
 const prepublishOnly = (pkg.scripts?.prepublishOnly || '').trim();
 
-if (!prepublishOnly || prepublishOnly.includes(';') || prepublishOnly.includes('||')) {
-  console.error('verify-package: FAIL - prepublishOnly script must strictly use && without ; or || to ensure failures block publishing');
+if (!prepublishOnly) {
+  console.error('verify-package: FAIL - missing prepublishOnly script in package.json');
   process.exit(1);
 }
 
-const commands = prepublishOnly.split('&&').map(c => c.trim());
-const testRegex = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:npm\s+(?:run\s+)?test|jasmine)(?:\s+(?!--help\b|-h\b)\S+)*$/;
-const verifyRegex = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:npm\s+run\s+verify:package|node\s+tools\/verify-package\.mjs)(?:\s+\S+)*$/;
-const buildRegex = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:npm\s+run\s+build(?::min)?|terser)(?:\s+\S+)*$/;
+// Reject all shell metacharacters, backgrounding, pipes, subshells, redirections, etc.
+// Only the "&&" delimiter is permitted between allowlisted commands.
+const withoutAndAnd = prepublishOnly.replaceAll('&&', ' ');
+if (/[;&|><$`\\(){}\n\r]/.test(withoutAndAnd)) {
+  console.error('verify-package: FAIL - prepublishOnly script contains forbidden shell metacharacters (only && delimiter permitted)');
+  process.exit(1);
+}
 
-const testIdx = commands.findIndex(cmd => testRegex.test(cmd));
-const verifyIdx = commands.findIndex(cmd => verifyRegex.test(cmd));
-const buildIdx = commands.findIndex(cmd => buildRegex.test(cmd));
+const commands = prepublishOnly.split('&&').map(c => c.trim()).filter(Boolean);
+if (commands.length === 0) {
+  console.error('verify-package: FAIL - prepublishOnly script contains no commands');
+  process.exit(1);
+}
+
+const testPattern = /^(?:[A-Za-z0-9_]+=[A-Za-z0-9_.-]+\s+)*(?:npm\s+(?:run\s+)?test|jasmine)$/;
+const verifyPattern = /^(?:[A-Za-z0-9_]+=[A-Za-z0-9_.-]+\s+)*(?:npm\s+run\s+verify:package|node\s+tools\/verify-package\.mjs)$/;
+const buildPattern = /^(?:[A-Za-z0-9_]+=[A-Za-z0-9_.-]+\s+)*(?:npm\s+run\s+build(?::min)?)$/;
+
+let testIdx = -1;
+let verifyIdx = -1;
+let buildIdx = -1;
+
+for (let i = 0; i < commands.length; i++) {
+  const cmd = commands[i];
+  if (testPattern.test(cmd)) {
+    if (testIdx === -1) testIdx = i;
+  } else if (verifyPattern.test(cmd)) {
+    if (verifyIdx === -1) verifyIdx = i;
+  } else if (buildPattern.test(cmd)) {
+    if (buildIdx === -1) buildIdx = i;
+  } else {
+    console.error(`verify-package: FAIL - prepublishOnly contains unallowlisted command segment: ${cmd}`);
+    process.exit(1);
+  }
+}
 
 if (testIdx === -1 || verifyIdx === -1 || (buildIdx !== -1 && (buildIdx < testIdx || buildIdx < verifyIdx))) {
   console.error('verify-package: FAIL - prepublishOnly script must run tests and verify:package before building/publishing');
