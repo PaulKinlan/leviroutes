@@ -166,8 +166,8 @@ The same route table works on the server. `dispatch()` routes a Node
 or a plain URL string, honouring the method each route was registered with. It returns
 `true` when a route matches, including when middleware will call `next()` later.
 It returns `false` when no route matches, or when server middleware explicitly
-calls `next.abort()` before `dispatch()` returns without ending the response, so
-your server can send its own fallback response. A middleware that simply omits
+calls `next.abort()` before `dispatch()` returns without committing response
+headers, so your server can send its own fallback response. A middleware that simply omits
 `next()` still owns the request; `dispatch()` cannot distinguish that from an
 asynchronous continuation while returning a synchronous boolean.
 
@@ -181,9 +181,13 @@ app.use(function(req, next) {
 });
 ```
 
-After `next.abort()`, a later `next()` cannot invoke the route handler. For
-asynchronous rejection, middleware must send its own response; aborting after
-`dispatch()` returns cannot signal the caller to send a fallback.
+After `next.abort()`, a later `next()` cannot invoke the route handler. If
+middleware has already sent headers (even with an unfinished body), `dispatch()`
+returns `true`: a fallback would corrupt the response, so middleware must finish
+it. The `next.abort()` method also stops the chain on browser routes, without
+changing browser navigation behavior. For asynchronous rejection, middleware
+must send its own response; aborting after `dispatch()` returns cannot signal
+the caller to send a fallback.
 
 ```javascript
 import http from 'node:http';

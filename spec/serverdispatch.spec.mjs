@@ -155,12 +155,22 @@ describe("server dispatch", function() {
     expect(fired).toEqual(false);
   });
 
-  it("should not count an incomplete response as handled", function() {
+  it("should keep ownership after headers are committed, even if the body is incomplete", function() {
     var response = { headersSent: true, writableEnded: false };
-    r.use(function(req, next) { next.abort(); /* headers alone do not complete the response */ });
+    r.use(function(req, next) { next.abort(); });
     r.get("/guarded", function() {});
 
-    expect(r.dispatch({ url: "/guarded", method: "GET" }, response)).toEqual(false);
+    // A caller fallback cannot safely change the status or append to a streamed body.
+    expect(r.dispatch({ url: "/guarded", method: "GET" }, response)).toEqual(true);
+  });
+
+  it("should make next.abort available on the browser routing path", function() {
+    var fired = false;
+    r.use(function(req, next) { next.abort(); });
+    r.get("/private", function() { fired = true; });
+
+    expect(function() { r.test("/private"); }).not.toThrow();
+    expect(fired).toEqual(false);
   });
 
   it("should allow deferred next without triggering the caller's fallback", async function() {
