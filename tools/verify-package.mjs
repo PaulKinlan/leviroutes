@@ -118,7 +118,17 @@ if (testIdx === -1 || verifyIdx === -1 || buildIdx === -1 || testIdx > verifyIdx
   process.exit(1);
 }
 
-// 2. Validate test set configuration in spec/support/jasmine.json
+// 2. Bind the effective Jasmine config: a higher-precedence .mjs/.js config
+// would silently override the checked JSON and could narrow the publish test set.
+for (const config of [
+  'spec/support/jasmine.mjs', 'spec/support/jasmine.js',
+  'jasmine.mjs', 'jasmine.js'
+]) {
+  if (fs.existsSync(path.join(root, config))) {
+    console.error(`verify-package: FAIL - unexpected Jasmine config ${config} (only spec/support/jasmine.json is allowed)`);
+    process.exit(1);
+  }
+}
 const jasmineConfigPath = path.join(root, 'spec', 'support', 'jasmine.json');
 if (!fs.existsSync(jasmineConfigPath)) {
   console.error('verify-package: FAIL - missing spec/support/jasmine.json');

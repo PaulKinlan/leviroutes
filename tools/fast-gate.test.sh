@@ -417,6 +417,23 @@ echo '{"spec_dir":"spec","spec_files":["routeparsing.spec.mjs"]}' > "$VP_FIXTURE
 vp_17h=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
 has "$vp_17h" 'spec/support/jasmine.json must specify spec_dir "spec" and spec_files' "17h verify-package rejects narrowed spec/support/jasmine.json"
 
+# 17i. Jasmine loads .mjs and .js before .json from spec/support. Keep JSON valid
+# while introducing an overriding config; the guard must reject it before building.
+cp "$HERE/../spec/support/jasmine.json" "$VP_FIXTURE/spec/support/jasmine.json"
+for config in spec/support/jasmine.mjs spec/support/jasmine.js jasmine.mjs jasmine.js; do
+  mkdir -p "$VP_FIXTURE/$(dirname "$config")"
+  printf 'export default { spec_dir: "spec", spec_files: ["routeparsing.spec.mjs"] };\n' > "$VP_FIXTURE/$config"
+  rm -f "$VP_FIXTURE/dist/routes.min.js"
+  vp_override=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1)
+  vp_override_rc=$?
+  if [ "$vp_override_rc" != 0 ] && grep -qF "unexpected Jasmine config $config" <<<"$vp_override" && [ ! -e "$VP_FIXTURE/dist/routes.min.js" ]; then
+    ok "17i verify-package rejects $config before build"
+  else
+    bad "17i verify-package accepted $config or built before rejecting it" "rc=$vp_override_rc output=$vp_override"
+  fi
+  rm "$VP_FIXTURE/$config"
+done
+
 echo
 if [ "$FAIL" -eq 0 ]; then
   echo "gate tooling tests: $PASS passed, 0 failed"
