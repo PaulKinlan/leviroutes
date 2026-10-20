@@ -2,15 +2,35 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
+import { minify } from 'terser';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
 
-// 1. Build minified artifact
+// 1. Build minified artifact and assert regeneration from src/routes.js
+const distPath = path.join(root, 'dist', 'routes.min.js');
+if (fs.existsSync(distPath)) {
+  fs.unlinkSync(distPath);
+}
+
 try {
   execSync('npm run build', { cwd: root, stdio: 'pipe' });
 } catch (err) {
   console.error('verify-package: FAIL - npm run build failed:', err.message);
+  process.exit(1);
+}
+
+if (!fs.existsSync(distPath)) {
+  console.error('verify-package: FAIL - npm run build did not generate dist/routes.min.js');
+  process.exit(1);
+}
+
+// Assert dist/routes.min.js matches exact compilation of src/routes.js
+const srcContent = fs.readFileSync(path.join(root, 'src', 'routes.js'), 'utf8');
+const compiled = await minify(srcContent, { compress: true, mangle: true, format: { comments: false } });
+const distContent = fs.readFileSync(distPath, 'utf8');
+if (compiled.code.trim() !== distContent.trim()) {
+  console.error('verify-package: FAIL - dist/routes.min.js is not compiled from src/routes.js');
   process.exit(1);
 }
 
@@ -63,9 +83,21 @@ if (buildBody !== 'npm run build:min') {
 }
 
 const buildMinBody = (pkg.scripts?.['build:min'] || '').trim();
-if (!buildMinBody.startsWith('terser src/routes.js -o dist/routes.min.js')) {
-  console.error(`verify-package: FAIL - package.json scripts["build:min"] must compile src/routes.js to dist/routes.min.js (got: ${buildMinBody})`);
+if (buildMinBody !== 'terser src/routes.js -o dist/routes.min.js -c -m --comments false') {
+  console.error(`verify-package: FAIL - package.json scripts["build:min"] must be exactly "terser src/routes.js -o dist/routes.min.js -c -m --comments false" (got: ${buildMinBody})`);
   process.exit(1);
+}
+
+// Reject unallowlisted npm lifecycle hooks that could bypass or mutate build/test artifacts
+const forbiddenHooks = [
+  'prebuild', 'prebuild:min', 'postbuild', 'postbuild:min',
+  'pretest', 'posttest', 'prepublish', 'prepare', 'prepack'
+];
+for (const hook of forbiddenHooks) {
+  if (pkg.scripts && hook in pkg.scripts) {
+    console.error(`verify-package: FAIL - package.json defines unallowlisted lifecycle hook scripts["${hook}"]`);
+    process.exit(1);
+  }
 }
 
 // Assert prepublishOnly script enforces tests and package verification before publishing
