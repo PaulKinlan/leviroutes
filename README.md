@@ -164,7 +164,11 @@ Middleware functions are executed in the order they are registered, before any r
 The same route table works on the server. `dispatch()` routes a Node
 `http.IncomingMessage`, a Web Fetch [`Request`](https://developer.mozilla.org/en-US/docs/Web/API/Request),
 or a plain URL string, honouring the method each route was registered with. It returns
-`true` when a route matched, so your server can send its own 404 when it returns `false`.
+`true` when the route callback runs or middleware completes the supplied Node response.
+It returns `false` when no route matches, or when middleware stops without calling
+`next()` or ending the response, so your server can send its own fallback response.
+Middleware must handle or continue requests synchronously: `dispatch()` returns a
+boolean immediately and cannot wait for asynchronous middleware.
 
 ```javascript
 import http from 'node:http';

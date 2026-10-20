@@ -171,20 +171,26 @@ const routes = function(options) {
       
       // Execute middleware chain
       var middlewareIndex = 0;
+      var routeReached = false;
       var next = function() {
         if (middlewareIndex < _middleware.length) {
           var middleware = _middleware[middlewareIndex++];
           middleware(req, next);
         } else {
           // All middleware executed, call the route callback
+          routeReached = true;
           route.callback(req);
         }
       };
       
       // Start middleware execution
       next();
-      
-      return true;
+
+      // A middleware may stop the chain to send its own response. If it neither
+      // reaches the route nor completes a Node response, let the caller handle
+      // the request instead of reporting a silent abort as handled.
+      return !server || routeReached || !!(server.response &&
+        (server.response.writableEnded || server.response.finished));
     }
 
     return false;
@@ -206,8 +212,9 @@ const routes = function(options) {
   // Fetch Request, or a plain URL string through the same route table the
   // browser uses. Matching honours the method each route was registered with
   // (get/post), unlike the browser paths which stay method-agnostic for
-  // backwards compatibility. Returns true when a route matched, so a server
-  // can send its own 404 when false.
+  // backwards compatibility. Returns true when the route callback runs or
+  // middleware completes the response, so a server can send its own fallback
+  // response when false.
   this.dispatch = function(request, response) {
     var url;
     var method;

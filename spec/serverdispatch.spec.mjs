@@ -120,14 +120,35 @@ describe("server dispatch", function() {
     expect(order).toEqual(["mw1", "mw2", "route"]);
   });
 
-  it("should not run the route callback when middleware does not call next", function() {
+  it("should return false when middleware stops without handling the request", function() {
     var fired = false;
-    r.use(function() { /* short-circuit, e.g. auth rejection */ });
+    r.use(function() { /* silent abort */ });
     r.get("/guarded", function() { fired = true; });
 
-    // The route matched, so the caller does not 404; the middleware owns the response.
-    expect(r.dispatch({ url: "/guarded", method: "GET" })).toEqual(true);
+    expect(r.dispatch({ url: "/guarded", method: "GET" })).toEqual(false);
     expect(fired).toEqual(false);
+  });
+
+  it("should return true when middleware stops after ending the response", function() {
+    var fired = false;
+    var response = {
+      writableEnded: false,
+      end: function() { this.writableEnded = true; }
+    };
+    r.use(function(req) { req.response.end("Denied"); });
+    r.get("/guarded", function() { fired = true; });
+
+    expect(r.dispatch({ url: "/guarded", method: "GET" }, response)).toEqual(true);
+    expect(response.writableEnded).toEqual(true);
+    expect(fired).toEqual(false);
+  });
+
+  it("should not count an incomplete response as handled", function() {
+    var response = { headersSent: true, writableEnded: false };
+    r.use(function() { /* headers alone do not complete the response */ });
+    r.get("/guarded", function() {});
+
+    expect(r.dispatch({ url: "/guarded", method: "GET" }, response)).toEqual(false);
   });
 
   it("should match with the urlpattern matcher too", function() {
