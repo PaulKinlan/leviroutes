@@ -68,7 +68,7 @@ npm test
 npm run build
 ```
 - Creates minified version at `dist/routes.min.js`
-- Build runs automatically before publish (`prepublishOnly`)
+- Tests, package verification and build run automatically before publish (`prepublishOnly`)
 - Uses Terser for compression
 
 ### Testing Locally

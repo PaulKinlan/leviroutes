@@ -332,6 +332,108 @@ STUB_FAIL
 fail_out=$(cd "$ROOT/repo" && SKIP_GATE_SELF_TESTS=1 bash "$FULL_GATE_SCRIPT" 2>&1 || true)
 has "$fail_out" "full gate: FAIL" "16a full-gate reports FAIL when a step fails"
 
+echo "=== Section 4: verify-package.mjs publish lifecycle and negative branch assertions ==="
+
+VP_FIXTURE="$ROOT/vp-fixture"
+mkdir -p "$VP_FIXTURE/tools" "$VP_FIXTURE/src" "$VP_FIXTURE/spec/support"
+cp "$HERE/verify-package.mjs" "$VP_FIXTURE/tools/"
+cp "$HERE/../src/routes.js" "$VP_FIXTURE/src/"
+cp "$HERE/../spec/support/jasmine.json" "$VP_FIXTURE/spec/support/"
+ln -s "$HERE/../node_modules" "$VP_FIXTURE/node_modules"
+
+BASE_PKG=$(cat <<'EOF'
+{
+  "name": "leviroutes",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./src/routes.js",
+  "module": "./src/routes.js",
+  "browser": "./dist/routes.min.js",
+  "exports": {
+    ".": {
+      "browser": "./dist/routes.min.js",
+      "import": "./src/routes.js"
+    }
+  },
+  "scripts": {
+    "test": "jasmine",
+    "verify:package": "node tools/verify-package.mjs",
+    "build": "npm run build:min",
+    "build:min": "terser src/routes.js -o dist/routes.min.js -c -m --comments false",
+    "prepublishOnly": "npm test && npm run verify:package && npm run build"
+  }
+}
+EOF
+)
+
+# 17a. clean control passes
+echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
+cp "$HERE/../spec/support/jasmine.json" "$VP_FIXTURE/spec/support/jasmine.json"
+clean_vp_out=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1)
+clean_vp_rc=$?
+has "$clean_vp_out" "verify-package: PASS" "17a verify-package passes on clean package.json and jasmine config"
+[ "$clean_vp_rc" = 0 ] && ok "17a2 verify-package exits 0 on valid configuration" || bad "17a2 expected exit 0" "got $clean_vp_rc"
+
+# 17b. masked scripts.test is rejected
+( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json"));p.scripts.test="jasmine || true";fs.writeFileSync("package.json",JSON.stringify(p))' )
+vp_17b=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
+has "$vp_17b" 'scripts.test must be exactly "jasmine"' "17b verify-package rejects masked scripts.test"
+
+# 17c. redefined scripts['verify:package'] is rejected
+echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
+( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json"));p.scripts.test="jasmine";p.scripts["verify:package"]="true";fs.writeFileSync("package.json",JSON.stringify(p))' )
+vp_17c=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
+has "$vp_17c" 'scripts["verify:package"] must execute "node tools/verify-package.mjs"' "17c verify-package rejects redefined verify:package"
+
+# 17d. poisoned build:min is rejected BEFORE command execution (no side-effect file created)
+echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
+PWNED_FILE="$VP_FIXTURE/pwned"
+( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json"));p.scripts["verify:package"]="node tools/verify-package.mjs";p.scripts["build:min"]="touch pwned && terser src/routes.js -o dist/routes.min.js -c -m --comments false";fs.writeFileSync("package.json",JSON.stringify(p))' )
+vp_17d=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
+has "$vp_17d" 'scripts["build:min"] must be exactly "terser' "17d verify-package rejects modified build:min"
+[ ! -f "$PWNED_FILE" ] && ok "17d2 verify-package validates build:min BEFORE command execution" || bad "17d2 poisoned build command executed before validation!" "pwned file created"
+
+# 17e. unallowlisted lifecycle hook is rejected
+echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
+( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json"));p.scripts["postbuild:min"]="echo hook";fs.writeFileSync("package.json",JSON.stringify(p))' )
+vp_17e=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
+has "$vp_17e" 'defines unallowlisted lifecycle hook scripts["postbuild:min"]' "17e verify-package rejects unallowlisted npm lifecycle hook"
+
+# 17f. prepublishOnly shell metacharacters (; | &) are rejected
+echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
+( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json"));p.scripts.prepublishOnly="npm test ; npm run verify:package ; npm run build";fs.writeFileSync("package.json",JSON.stringify(p))' )
+vp_17f=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
+has "$vp_17f" 'forbidden shell metacharacters' "17f verify-package rejects non-&& shell metacharacters in prepublishOnly"
+
+# 17g. prepublishOnly missing build leg is rejected
+echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
+( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json"));p.scripts.prepublishOnly="npm test && npm run verify:package";fs.writeFileSync("package.json",JSON.stringify(p))' )
+vp_17g=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
+has "$vp_17g" 'must strictly chain test, verify:package, and build commands in order' "17g verify-package rejects prepublishOnly missing build leg"
+
+# 17h. narrowed spec/support/jasmine.json is rejected
+echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
+echo '{"spec_dir":"spec","spec_files":["routeparsing.spec.mjs"]}' > "$VP_FIXTURE/spec/support/jasmine.json"
+vp_17h=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
+has "$vp_17h" 'spec/support/jasmine.json must specify spec_dir "spec" and spec_files' "17h verify-package rejects narrowed spec/support/jasmine.json"
+
+# 17i. Jasmine loads .mjs and .js before .json from spec/support. Keep JSON valid
+# while introducing an overriding config; the guard must reject it before building.
+cp "$HERE/../spec/support/jasmine.json" "$VP_FIXTURE/spec/support/jasmine.json"
+for config in spec/support/jasmine.mjs spec/support/jasmine.js jasmine.mjs jasmine.js; do
+  mkdir -p "$VP_FIXTURE/$(dirname "$config")"
+  printf 'export default { spec_dir: "spec", spec_files: ["routeparsing.spec.mjs"] };\n' > "$VP_FIXTURE/$config"
+  rm -f "$VP_FIXTURE/dist/routes.min.js"
+  vp_override=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1)
+  vp_override_rc=$?
+  if [ "$vp_override_rc" != 0 ] && grep -qF "unexpected Jasmine config $config" <<<"$vp_override" && [ ! -e "$VP_FIXTURE/dist/routes.min.js" ]; then
+    ok "17i verify-package rejects $config before build"
+  else
+    bad "17i verify-package accepted $config or built before rejecting it" "rc=$vp_override_rc output=$vp_override"
+  fi
+  rm "$VP_FIXTURE/$config"
+done
+
 echo
 if [ "$FAIL" -eq 0 ]; then
   echo "gate tooling tests: $PASS passed, 0 failed"
