@@ -171,25 +171,27 @@ const routes = function(options) {
       
       // Execute middleware chain
       var middlewareIndex = 0;
-      var routeReached = false;
+      var aborted = false;
       var next = function() {
+        if (aborted) return;
         if (middlewareIndex < _middleware.length) {
           var middleware = _middleware[middlewareIndex++];
           middleware(req, next);
         } else {
           // All middleware executed, call the route callback
-          routeReached = true;
           route.callback(req);
         }
       };
       
+      // A synchronous server middleware can explicitly transfer responsibility
+      // back to the caller. Without that signal, no immediate next() is also a
+      // valid deferred next(), so a matched route must still count as handled.
+      if (server) next.abort = function() { aborted = true; };
+
       // Start middleware execution
       next();
 
-      // A middleware may stop the chain to send its own response. If it neither
-      // reaches the route nor completes a Node response, let the caller handle
-      // the request instead of reporting a silent abort as handled.
-      return !server || routeReached || !!(server.response &&
+      return !server || !aborted || !!(server.response &&
         (server.response.writableEnded || server.response.finished));
     }
 
@@ -212,9 +214,9 @@ const routes = function(options) {
   // Fetch Request, or a plain URL string through the same route table the
   // browser uses. Matching honours the method each route was registered with
   // (get/post), unlike the browser paths which stay method-agnostic for
-  // backwards compatibility. Returns true when the route callback runs or
-  // middleware completes the response, so a server can send its own fallback
-  // response when false.
+  // backwards compatibility. Returns true when a route matches, unless server
+  // middleware explicitly calls next.abort() before returning without ending
+  // the response; the caller can then send its own fallback response.
   this.dispatch = function(request, response) {
     var url;
     var method;

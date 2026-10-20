@@ -4,6 +4,7 @@
  * with method-aware matching and query-string values.
  */
 import routes from '../src/routes.js';
+import http from 'node:http';
 
 describe("server dispatch", function() {
   var r;
@@ -120,12 +121,23 @@ describe("server dispatch", function() {
     expect(order).toEqual(["mw1", "mw2", "route"]);
   });
 
-  it("should return false when middleware stops without handling the request", function() {
+  it("should preserve route ownership when middleware does not call next immediately", function() {
     var fired = false;
-    r.use(function() { /* silent abort */ });
+    r.use(function() { /* may call next later, or own the response */ });
+    r.get("/guarded", function() { fired = true; });
+
+    expect(r.dispatch({ url: "/guarded", method: "GET" })).toEqual(true);
+    expect(fired).toEqual(false);
+  });
+
+  it("should return false on explicit abort and ignore late next", function() {
+    var fired = false;
+    var continueLater;
+    r.use(function(req, next) { continueLater = next; next.abort(); });
     r.get("/guarded", function() { fired = true; });
 
     expect(r.dispatch({ url: "/guarded", method: "GET" })).toEqual(false);
+    continueLater();
     expect(fired).toEqual(false);
   });
 
@@ -135,7 +147,7 @@ describe("server dispatch", function() {
       writableEnded: false,
       end: function() { this.writableEnded = true; }
     };
-    r.use(function(req) { req.response.end("Denied"); });
+    r.use(function(req, next) { req.response.end("Denied"); next.abort(); });
     r.get("/guarded", function() { fired = true; });
 
     expect(r.dispatch({ url: "/guarded", method: "GET" }, response)).toEqual(true);
@@ -145,10 +157,33 @@ describe("server dispatch", function() {
 
   it("should not count an incomplete response as handled", function() {
     var response = { headersSent: true, writableEnded: false };
-    r.use(function() { /* headers alone do not complete the response */ });
+    r.use(function(req, next) { next.abort(); /* headers alone do not complete the response */ });
     r.get("/guarded", function() {});
 
     expect(r.dispatch({ url: "/guarded", method: "GET" }, response)).toEqual(false);
+  });
+
+  it("should allow deferred next without triggering the caller's fallback", async function() {
+    r.use(async function(req, next) {
+      await new Promise(function(resolve) { setTimeout(resolve, 5); });
+      next();
+    });
+    r.get("/slow", function(req) { req.response.end("slow ok"); });
+    var handled;
+    var server = http.createServer(function(request, response) {
+      handled = r.dispatch(request, response);
+      if (!handled) { response.statusCode = 404; response.end("Fallback"); }
+    });
+
+    try {
+      await new Promise(function(resolve) { server.listen(0, "127.0.0.1", resolve); });
+      var result = await fetch("http://127.0.0.1:" + server.address().port + "/slow");
+      expect(handled).toEqual(true);
+      expect(result.status).toEqual(200);
+      expect(await result.text()).toEqual("slow ok");
+    } finally {
+      await new Promise(function(resolve) { server.close(resolve); });
+    }
   });
 
   it("should match with the urlpattern matcher too", function() {
