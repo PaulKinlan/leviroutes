@@ -171,7 +171,9 @@ const routes = function(options) {
       
       // Execute middleware chain
       var middlewareIndex = 0;
+      var aborted = false;
       var next = function() {
+        if (aborted) return;
         if (middlewareIndex < _middleware.length) {
           var middleware = _middleware[middlewareIndex++];
           middleware(req, next);
@@ -181,10 +183,16 @@ const routes = function(options) {
         }
       };
       
+      // A synchronous server middleware can explicitly transfer responsibility
+      // back to the caller. Without that signal, no immediate next() is also a
+      // valid deferred next(), so a matched route must still count as handled.
+      next.abort = function() { aborted = true; };
+
       // Start middleware execution
       next();
-      
-      return true;
+
+      return !server || !aborted || !!(server.response &&
+        (server.response.headersSent || server.response.writableEnded || server.response.finished));
     }
 
     return false;
@@ -206,8 +214,9 @@ const routes = function(options) {
   // Fetch Request, or a plain URL string through the same route table the
   // browser uses. Matching honours the method each route was registered with
   // (get/post), unlike the browser paths which stay method-agnostic for
-  // backwards compatibility. Returns true when a route matched, so a server
-  // can send its own 404 when false.
+  // backwards compatibility. Returns true when a route matches, unless server
+  // middleware explicitly calls next.abort() before returning without
+  // committing the response; the caller can then send its own fallback.
   this.dispatch = function(request, response) {
     var url;
     var method;

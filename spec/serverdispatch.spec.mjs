@@ -4,6 +4,7 @@
  * with method-aware matching and query-string values.
  */
 import routes from '../src/routes.js';
+import http from 'node:http';
 
 describe("server dispatch", function() {
   var r;
@@ -120,14 +121,79 @@ describe("server dispatch", function() {
     expect(order).toEqual(["mw1", "mw2", "route"]);
   });
 
-  it("should not run the route callback when middleware does not call next", function() {
+  it("should preserve route ownership when middleware does not call next immediately", function() {
     var fired = false;
-    r.use(function() { /* short-circuit, e.g. auth rejection */ });
+    r.use(function() { /* may call next later, or own the response */ });
     r.get("/guarded", function() { fired = true; });
 
-    // The route matched, so the caller does not 404; the middleware owns the response.
     expect(r.dispatch({ url: "/guarded", method: "GET" })).toEqual(true);
     expect(fired).toEqual(false);
+  });
+
+  it("should return false on explicit abort and ignore late next", function() {
+    var fired = false;
+    var continueLater;
+    r.use(function(req, next) { continueLater = next; next.abort(); });
+    r.get("/guarded", function() { fired = true; });
+
+    expect(r.dispatch({ url: "/guarded", method: "GET" })).toEqual(false);
+    continueLater();
+    expect(fired).toEqual(false);
+  });
+
+  it("should return true when middleware stops after ending the response", function() {
+    var fired = false;
+    var response = {
+      writableEnded: false,
+      end: function() { this.writableEnded = true; }
+    };
+    r.use(function(req, next) { req.response.end("Denied"); next.abort(); });
+    r.get("/guarded", function() { fired = true; });
+
+    expect(r.dispatch({ url: "/guarded", method: "GET" }, response)).toEqual(true);
+    expect(response.writableEnded).toEqual(true);
+    expect(fired).toEqual(false);
+  });
+
+  it("should keep ownership after headers are committed, even if the body is incomplete", function() {
+    var response = { headersSent: true, writableEnded: false };
+    r.use(function(req, next) { next.abort(); });
+    r.get("/guarded", function() {});
+
+    // A caller fallback cannot safely change the status or append to a streamed body.
+    expect(r.dispatch({ url: "/guarded", method: "GET" }, response)).toEqual(true);
+  });
+
+  it("should make next.abort available on the browser routing path", function() {
+    var fired = false;
+    r.use(function(req, next) { next.abort(); });
+    r.get("/private", function() { fired = true; });
+
+    expect(function() { r.test("/private"); }).not.toThrow();
+    expect(fired).toEqual(false);
+  });
+
+  it("should allow deferred next without triggering the caller's fallback", async function() {
+    r.use(async function(req, next) {
+      await new Promise(function(resolve) { setTimeout(resolve, 5); });
+      next();
+    });
+    r.get("/slow", function(req) { req.response.end("slow ok"); });
+    var handled;
+    var server = http.createServer(function(request, response) {
+      handled = r.dispatch(request, response);
+      if (!handled) { response.statusCode = 404; response.end("Fallback"); }
+    });
+
+    try {
+      await new Promise(function(resolve) { server.listen(0, "127.0.0.1", resolve); });
+      var result = await fetch("http://127.0.0.1:" + server.address().port + "/slow");
+      expect(handled).toEqual(true);
+      expect(result.status).toEqual(200);
+      expect(await result.text()).toEqual("slow ok");
+    } finally {
+      await new Promise(function(resolve) { server.close(resolve); });
+    }
   });
 
   it("should match with the urlpattern matcher too", function() {
