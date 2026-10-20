@@ -43,6 +43,13 @@ for (const entry of requiredEntries) {
   }
 }
 
+// Assert prepublishOnly script enforces tests and package verification before publishing
+const prepublishOnly = pkg.scripts?.prepublishOnly;
+if (!prepublishOnly || !prepublishOnly.includes('test') || !prepublishOnly.includes('verify:package')) {
+  console.error('verify-package: FAIL - prepublishOnly script must run tests and verify:package before publishing');
+  process.exit(1);
+}
+
 // 3. Import and smoke test src/routes.js
 try {
   const { default: RoutesSrc } = await import(path.join(root, pkg.main));
