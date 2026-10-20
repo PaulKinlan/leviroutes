@@ -44,12 +44,21 @@ for (const entry of requiredEntries) {
 }
 
 // Assert prepublishOnly script enforces tests and package verification before publishing
-const commands = (pkg.scripts?.prepublishOnly || '')
-  .split(/&&|;/)
-  .map(c => c.trim());
-const testIdx = commands.findIndex(cmd => /^(?:npm\s+(?:run\s+)?test|jasmine)\b/.test(cmd));
-const verifyIdx = commands.findIndex(cmd => /^(?:npm\s+run\s+verify:package|node\s+tools\/verify-package\.mjs)\b/.test(cmd));
-const buildIdx = commands.findIndex(cmd => /^(?:npm\s+run\s+build(?::min)?|terser)\b/.test(cmd));
+const prepublishOnly = (pkg.scripts?.prepublishOnly || '').trim();
+
+if (!prepublishOnly || prepublishOnly.includes(';') || prepublishOnly.includes('||')) {
+  console.error('verify-package: FAIL - prepublishOnly script must strictly use && without ; or || to ensure failures block publishing');
+  process.exit(1);
+}
+
+const commands = prepublishOnly.split('&&').map(c => c.trim());
+const testRegex = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:npm\s+(?:run\s+)?test|jasmine)(?:\s+(?!--help\b|-h\b)\S+)*$/;
+const verifyRegex = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:npm\s+run\s+verify:package|node\s+tools\/verify-package\.mjs)(?:\s+\S+)*$/;
+const buildRegex = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:npm\s+run\s+build(?::min)?|terser)(?:\s+\S+)*$/;
+
+const testIdx = commands.findIndex(cmd => testRegex.test(cmd));
+const verifyIdx = commands.findIndex(cmd => verifyRegex.test(cmd));
+const buildIdx = commands.findIndex(cmd => buildRegex.test(cmd));
 
 if (testIdx === -1 || verifyIdx === -1 || (buildIdx !== -1 && (buildIdx < testIdx || buildIdx < verifyIdx))) {
   console.error('verify-package: FAIL - prepublishOnly script must run tests and verify:package before building/publishing');
