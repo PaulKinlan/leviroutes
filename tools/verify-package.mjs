@@ -43,6 +43,29 @@ for (const entry of requiredEntries) {
   }
 }
 
+// Validate underlying scripts invoked by the prepublish lifecycle
+const testBody = (pkg.scripts?.test || '').trim();
+if (!testBody || /[;&|><$`\\(){}\n\r]/.test(testBody)) {
+  console.error('verify-package: FAIL - package.json scripts.test is missing or contains forbidden shell metacharacters');
+  process.exit(1);
+}
+if (!/^(?:[A-Za-z0-9_]+=[A-Za-z0-9_.-]+\s+)*(?:jasmine)(?:\s+(?!--help\b|-h\b)[A-Za-z0-9_.-]+)*$/.test(testBody)) {
+  console.error(`verify-package: FAIL - package.json scripts.test must resolve to a valid runner command (got: ${testBody})`);
+  process.exit(1);
+}
+
+const verifyBody = (pkg.scripts?.['verify:package'] || '').trim();
+if (!verifyBody || verifyBody !== 'node tools/verify-package.mjs') {
+  console.error('verify-package: FAIL - package.json scripts["verify:package"] must execute "node tools/verify-package.mjs"');
+  process.exit(1);
+}
+
+const buildBody = (pkg.scripts?.build || '').trim();
+if (!buildBody || /[;&|><$`\\(){}\n\r]/.test(buildBody) || !/^(?:npm\s+run\s+build:min|terser\b.*)$/.test(buildBody)) {
+  console.error('verify-package: FAIL - package.json scripts.build must resolve to a valid build command (npm run build:min)');
+  process.exit(1);
+}
+
 // Assert prepublishOnly script enforces tests and package verification before publishing
 const prepublishOnly = (pkg.scripts?.prepublishOnly || '').trim();
 
