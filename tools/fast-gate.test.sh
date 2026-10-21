@@ -215,6 +215,24 @@ dead_keys=$(node -e '
 [ -z "$dead_keys" ] && ok "9f every coverage-contract key names a path in the tree" \
   || bad "9f coverage contract has dead keys" "$dead_keys"
 
+# 9g. The coverage contract suites for src/routes.js must match the suite map selection
+contract_drift=$(node -e '
+  const fs = require("fs");
+  const contract = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  const contractSuites = contract["src/routes.js"] || [];
+  const mapSuites = process.argv.slice(2);
+  const cSet = new Set(contractSuites);
+  const mSet = new Set(mapSuites);
+  const missingFromContract = mapSuites.filter((s) => !cSet.has(s));
+  const extraInContract = contractSuites.filter((s) => !mSet.has(s));
+  const errors = [];
+  if (missingFromContract.length) errors.push("missing from contract: " + missingFromContract.join(" "));
+  if (extraInContract.length) errors.push("extra in contract: " + extraInContract.join(" "));
+  if (errors.length) { console.log(errors.join("; ")); process.exit(1); }
+' "$CONTRACT" $(cd "$REAL_ROOT" && bash "$REAL_ROOT/tools/fast-gate.sh" --list --changed src/routes.js) 2>&1)
+[ -z "$contract_drift" ] && ok "9g coverage contract suites for src/routes.js match suite-map selection" \
+  || bad "9g coverage contract drift for src/routes.js" "$contract_drift"
+
 echo "=== Section 2: check-cmd.sh and check.conf validation ==="
 
 TEST_HOME="$ROOT/home"
