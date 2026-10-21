@@ -129,4 +129,14 @@ describe("routing", function() {
     r.test("/user/admin/42/99/edit");
     expect(params).toEqual({ id: "42", action: "edit" });
   });
+
+  it("should create req.params with null prototype so parameter names cannot collide with Object.prototype", function() {
+    var seen = null;
+    r.get("/items/:hasOwnProperty", function(req) { seen = req; });
+
+    r.test("/items/test-value");
+    expect(seen.params.hasOwnProperty).toEqual("test-value");
+    expect(Object.prototype.hasOwnProperty.call(seen.params, "hasOwnProperty")).toBe(true);
+    expect(Object.getPrototypeOf(seen.params)).toBeNull();
+  });
 });

@@ -168,7 +168,7 @@ const routes = function(options) {
 
         // Only named groups become req.params: URLPattern also reports positional
         // keys ('0', '1', ...) for wildcards, which are not named parameters.
-        params = {};
+        params = Object.create(null);
         var named = patternMatch.pathname.groups;
         for(var name in named) {
           if (/^\d+$/.test(name) == false && typeof named[name] === "string") params[name] = named[name];
@@ -177,14 +177,14 @@ const routes = function(options) {
         var routeMatch = route.regex.regexp.exec(path);
         if(!!routeMatch == false) continue;
 
-        params = {};
+        params = Object.create(null);
         for(var g in route.regex.groups) {
           var group = route.regex.groups[g];
           params[g] = routeMatch[group + 1];
         }
       }
 
-      var values = {};
+      var values = Object.create(null);
       if(e && e.target instanceof HTMLFormElement) {
         var form = e.target;
         var items = form.length;
