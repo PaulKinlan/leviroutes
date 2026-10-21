@@ -1,4 +1,22 @@
 {
+  "package-lock.json": [
+    "spec/fixtureisolation.spec.mjs",
+    "spec/middleware.spec.mjs",
+    "spec/routeexecution.spec.mjs",
+    "spec/routemanagement.spec.mjs",
+    "spec/routeparsing.spec.mjs",
+    "spec/routesframework.spec.mjs",
+    "tools/verify-package.mjs"
+  ],
+  "package.json": [
+    "spec/fixtureisolation.spec.mjs",
+    "spec/middleware.spec.mjs",
+    "spec/routeexecution.spec.mjs",
+    "spec/routemanagement.spec.mjs",
+    "spec/routeparsing.spec.mjs",
+    "spec/routesframework.spec.mjs",
+    "tools/verify-package.mjs"
+  ],
   "src/routes.js": [
     "spec/middleware.spec.mjs",
     "spec/routeexecution.spec.mjs",

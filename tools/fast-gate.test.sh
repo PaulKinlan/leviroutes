@@ -226,13 +226,13 @@ contract_drift=$(node -e '
   const contract = JSON.parse(fs.readFileSync(contractPath, "utf8"));
   const suiteMapText = fs.readFileSync(suiteMapPath, "utf8");
 
-  // Literal non-glob paths in src/ and tools/ mapped by suite-map.tsv
+  // Literal non-glob paths (excluding specs that map to themselves) mapped by suite-map.tsv
   const mappedKeys = suiteMapText
     .split("\n")
     .map(l => l.trim())
     .filter(l => l && !l.startsWith("#") && !l.startsWith("!"))
     .map(l => l.split("\t")[0].trim())
-    .filter(p => !p.includes("*") && (p.startsWith("src/") || p.startsWith("tools/")));
+    .filter(p => !p.includes("*") && !p.startsWith("spec/"));
 
   const contractKeys = new Set(Object.keys(contract));
   const missingKeys = mappedKeys.filter(k => !contractKeys.has(k));
