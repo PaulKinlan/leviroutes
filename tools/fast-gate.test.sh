@@ -128,11 +128,14 @@ hasnt "$out" "fast-gate: passed: spec/middleware.spec.mjs" "6b failing suite is 
 [ "$rc" != 0 ] && ok "6c failing suite exits non-zero" || bad "6c expected non-zero exit" "got $rc"
 STUB_FAIL=0
 
-# 7. Package.json changes select package validation
+# 7. Package.json and package-lock.json changes select package validation
 rm -f "$RUN_LOG"
 out=$(run --list --changed package.json)
 has "$out" "tools/verify-package.mjs" "7a package.json selects tools/verify-package.mjs"
 has "$out" "spec/middleware.spec.mjs" "7b package.json also selects test specs"
+out_lock=$(run --list --changed package-lock.json)
+has "$out_lock" "tools/verify-package.mjs" "7c package-lock.json selects tools/verify-package.mjs"
+has "$out_lock" "spec/middleware.spec.mjs" "7d package-lock.json also selects test specs"
 
 # 8. Stale map entry fails loudly
 cp "$ROOT/repo/tools/suite-map.tsv" "$ROOT/map.bak"
@@ -407,32 +410,42 @@ mkdir -p "$VP_FIXTURE/tools" "$VP_FIXTURE/src" "$VP_FIXTURE/spec/support"
 cp "$HERE/verify-package.mjs" "$VP_FIXTURE/tools/"
 cp "$HERE/../src/routes.js" "$VP_FIXTURE/src/"
 cp "$HERE/../spec/support/jasmine.json" "$VP_FIXTURE/spec/support/"
+cp "$HERE/../package-lock.json" "$VP_FIXTURE/package-lock.json"
 ln -s "$HERE/../node_modules" "$VP_FIXTURE/node_modules"
 
-BASE_PKG=$(cat <<'EOF'
-{
-  "name": "leviroutes",
-  "version": "1.0.0",
-  "type": "module",
-  "main": "./src/routes.js",
-  "module": "./src/routes.js",
-  "browser": "./dist/routes.min.js",
-  "exports": {
-    ".": {
-      "browser": "./dist/routes.min.js",
-      "import": "./src/routes.js"
-    }
-  },
-  "scripts": {
-    "test": "jasmine",
+# The fixture package.json is derived from the lockfile it copies (name, version and both
+# dependency maps) instead of a frozen snapshot of today's devDependencies. verify-package
+# compares lock.packages[""] against package.json in BOTH directions, so a hardcoded constant
+# turned every legitimate in-sync dependency bump (exactly what `npm i -D <pkg>` produces)
+# into 14 red fixture tests (leviroutes-tcn). Only the script block is a frozen constant,
+# because that is what the negative assertions below mutate.
+BASE_PKG=$(node -e '
+const fs = require("fs");
+const lock = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const rootEntry = lock.packages[""] || {};
+const pkg = {
+  name: lock.name,
+  version: lock.version,
+  type: "module",
+  main: "./src/routes.js",
+  module: "./src/routes.js",
+  browser: "./dist/routes.min.js",
+  exports: { ".": { browser: "./dist/routes.min.js", import: "./src/routes.js" } },
+  scripts: {
+    test: "jasmine",
     "verify:package": "node tools/verify-package.mjs",
-    "build": "npm run build:min",
+    build: "npm run build:min",
     "build:min": "terser src/routes.js -o dist/routes.min.js -c -m --comments false",
-    "prepublishOnly": "npm test && npm run verify:package && npm run build"
+    prepublishOnly: "npm test && npm run verify:package && npm run build"
   }
-}
-EOF
-)
+};
+if (rootEntry.dependencies) pkg.dependencies = rootEntry.dependencies;
+if (rootEntry.devDependencies) pkg.devDependencies = rootEntry.devDependencies;
+process.stdout.write(JSON.stringify(pkg, null, 2));
+' "$VP_FIXTURE/package-lock.json")
+if [ -z "$BASE_PKG" ]; then
+  bad "17 the fixture package.json is derived from the copied lockfile" "derivation produced no output"
+fi
 
 # 17a. clean control passes
 echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
@@ -501,6 +514,61 @@ for config in spec/support/jasmine.mjs spec/support/jasmine.js jasmine.mjs jasmi
   fi
   rm "$VP_FIXTURE/$config"
 done
+
+# 17j. missing package-lock.json is rejected
+mv "$VP_FIXTURE/package-lock.json" "$VP_FIXTURE/package-lock.hidden"
+vp_17j=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
+has "$vp_17j" "missing package-lock.json" "17j verify-package rejects missing package-lock.json"
+mv "$VP_FIXTURE/package-lock.hidden" "$VP_FIXTURE/package-lock.json"
+
+# 17k. invalid JSON in package-lock.json is rejected
+cp "$VP_FIXTURE/package-lock.json" "$VP_FIXTURE/package-lock.bak"
+echo "not valid json" > "$VP_FIXTURE/package-lock.json"
+vp_17k=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
+has "$vp_17k" "invalid JSON in package-lock.json" "17k verify-package rejects invalid JSON in package-lock.json"
+
+# 17l. corrupt SRI integrity in package-lock.json (e.g. sha512-CORRUPT) is rejected
+sed '0,/"integrity": "sha512-/s//"integrity": "sha512-CORRUPT/' "$VP_FIXTURE/package-lock.bak" > "$VP_FIXTURE/package-lock.json"
+vp_17l=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
+has "$vp_17l" "contains invalid integrity hash" "17l verify-package rejects corrupt SRI integrity in package-lock.json"
+
+# 17m. mismatched dependencies between package.json and package-lock.json is rejected
+cp "$VP_FIXTURE/package-lock.bak" "$VP_FIXTURE/package-lock.json"
+( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json"));p.devDependencies.jasmine="^6.0.0";fs.writeFileSync("package.json",JSON.stringify(p))' )
+vp_17m=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
+has "$vp_17m" 'package-lock.json devDependencies["jasmine"]' "17m verify-package rejects mismatched dependencies between package.json and package-lock.json"
+echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
+
+# 17n. mismatched name/version in package-lock.json is rejected
+( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const l=JSON.parse(fs.readFileSync("package-lock.json"));l.version="9.9.9";fs.writeFileSync("package-lock.json",JSON.stringify(l))' )
+vp_17n=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
+# The expected message names the fixture version derived from the lockfile, so this assertion
+# must not pin the repository's current version string.
+has "$vp_17n" 'package-lock.json version "9.9.9" does not match package.json version' "17n verify-package rejects mismatched name or version in package-lock.json"
+cp "$VP_FIXTURE/package-lock.bak" "$VP_FIXTURE/package-lock.json"
+rm "$VP_FIXTURE/package-lock.bak"
+
+# 17o. a legitimate in-sync dependency bump still passes. This is the leviroutes-tcn regression:
+# package.json and package-lock.json are both updated to the same new specifier (the shape
+# `npm i -D <pkg>` produces), so the parity assertions must keep passing rather than reporting
+# an extraneous/missing dependency.
+cp "$VP_FIXTURE/package-lock.json" "$VP_FIXTURE/package-lock.bump.bak"
+( cd "$VP_FIXTURE" && node -e '
+const fs=require("fs");
+const p=JSON.parse(fs.readFileSync("package.json"));
+p.devDependencies.terser=">=5.0.0";
+fs.writeFileSync("package.json",JSON.stringify(p,null,2));
+const l=JSON.parse(fs.readFileSync("package-lock.json"));
+l.packages[""].devDependencies.terser=">=5.0.0";
+fs.writeFileSync("package-lock.json",JSON.stringify(l,null,2));
+' )
+vp_17o=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1)
+vp_17o_rc=$?
+has "$vp_17o" "verify-package: PASS" "17o verify-package accepts an in-sync dependency bump (fixture package.json derives from the lockfile)"
+[ "$vp_17o_rc" = 0 ] && ok "17o2 verify-package exits 0 on an in-sync dependency bump" || bad "17o2 expected exit 0" "got $vp_17o_rc: $vp_17o"
+cp "$VP_FIXTURE/package-lock.bump.bak" "$VP_FIXTURE/package-lock.json"
+rm "$VP_FIXTURE/package-lock.bump.bak"
+echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
 
 echo
 if [ "$FAIL" -eq 0 ]; then
