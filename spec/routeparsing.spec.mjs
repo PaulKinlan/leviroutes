@@ -33,4 +33,16 @@ describe("route parsing", function() {
     expect(r.getRoutes()[0].regex.groups["id"]).toEqual(1);
     expect(r.getRoutes()[0].regex.regexp).toEqual(/^\/foo\/([a-z]+)\/([^/.\\]+)$/);
   });
+
+  it("should parse named param followed by custom regex group", function() {
+    r.get("/user/:id(\\d+)", function(){});
+    expect(r.getRoutes()[0].regex.groups["id"]).toEqual(0);
+    expect(r.getRoutes()[0].regex.regexp).toEqual(/^\/user\/(\d+)$/);
+  });
+
+  it("should parse named param followed by character-class regex group", function() {
+    r.get("/user/:id([a-z]+)", function(){});
+    expect(r.getRoutes()[0].regex.groups["id"]).toEqual(0);
+    expect(r.getRoutes()[0].regex.regexp).toEqual(/^\/user\/([a-z]+)$/);
+  });
 });

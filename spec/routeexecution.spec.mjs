@@ -139,4 +139,28 @@ describe("routing", function() {
     expect(Object.prototype.hasOwnProperty.call(seen.params, "hasOwnProperty")).toBe(true);
     expect(Object.getPrototypeOf(seen.params)).toBeNull();
   });
+
+  it("should match named params with custom regex groups and extract params correctly", function() {
+    var seen = null;
+    r.get("/user/:id(\\d+)", function(req) { seen = req.params; });
+
+    r.test("/user/42");
+    expect(seen).toEqual({ id: "42" });
+
+    seen = null;
+    r.test("/user/abc");
+    expect(seen).toEqual(null);
+  });
+
+  it("should match named params with character-class groups", function() {
+    var seen = null;
+    r.get("/user/:id([a-z]+)", function(req) { seen = req.params; });
+
+    r.test("/user/ab");
+    expect(seen).toEqual({ id: "ab" });
+
+    seen = null;
+    r.test("/user/12");
+    expect(seen).toEqual(null);
+  });
 });
