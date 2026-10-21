@@ -413,35 +413,39 @@ cp "$HERE/../spec/support/jasmine.json" "$VP_FIXTURE/spec/support/"
 cp "$HERE/../package-lock.json" "$VP_FIXTURE/package-lock.json"
 ln -s "$HERE/../node_modules" "$VP_FIXTURE/node_modules"
 
-BASE_PKG=$(cat <<'EOF'
-{
-  "name": "leviroutes",
-  "version": "1.0.0",
-  "type": "module",
-  "main": "./src/routes.js",
-  "module": "./src/routes.js",
-  "browser": "./dist/routes.min.js",
-  "exports": {
-    ".": {
-      "browser": "./dist/routes.min.js",
-      "import": "./src/routes.js"
-    }
-  },
-  "devDependencies": {
-    "jasmine": "^5.1.0",
-    "jsdom": "^23.0.0",
-    "terser": "^5.27.0"
-  },
-  "scripts": {
-    "test": "jasmine",
+# The fixture package.json is derived from the lockfile it copies (name, version and both
+# dependency maps) instead of a frozen snapshot of today's devDependencies. verify-package
+# compares lock.packages[""] against package.json in BOTH directions, so a hardcoded constant
+# turned every legitimate in-sync dependency bump (exactly what `npm i -D <pkg>` produces)
+# into 14 red fixture tests (leviroutes-tcn). Only the script block is a frozen constant,
+# because that is what the negative assertions below mutate.
+BASE_PKG=$(node -e '
+const fs = require("fs");
+const lock = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const rootEntry = lock.packages[""] || {};
+const pkg = {
+  name: lock.name,
+  version: lock.version,
+  type: "module",
+  main: "./src/routes.js",
+  module: "./src/routes.js",
+  browser: "./dist/routes.min.js",
+  exports: { ".": { browser: "./dist/routes.min.js", import: "./src/routes.js" } },
+  scripts: {
+    test: "jasmine",
     "verify:package": "node tools/verify-package.mjs",
-    "build": "npm run build:min",
+    build: "npm run build:min",
     "build:min": "terser src/routes.js -o dist/routes.min.js -c -m --comments false",
-    "prepublishOnly": "npm test && npm run verify:package && npm run build"
+    prepublishOnly: "npm test && npm run verify:package && npm run build"
   }
-}
-EOF
-)
+};
+if (rootEntry.dependencies) pkg.dependencies = rootEntry.dependencies;
+if (rootEntry.devDependencies) pkg.devDependencies = rootEntry.devDependencies;
+process.stdout.write(JSON.stringify(pkg, null, 2));
+' "$VP_FIXTURE/package-lock.json")
+if [ -z "$BASE_PKG" ]; then
+  bad "17 the fixture package.json is derived from the copied lockfile" "derivation produced no output"
+fi
 
 # 17a. clean control passes
 echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
@@ -538,9 +542,33 @@ echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
 # 17n. mismatched name/version in package-lock.json is rejected
 ( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const l=JSON.parse(fs.readFileSync("package-lock.json"));l.version="9.9.9";fs.writeFileSync("package-lock.json",JSON.stringify(l))' )
 vp_17n=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17n" 'package-lock.json version "9.9.9" does not match package.json version "1.0.0"' "17n verify-package rejects mismatched name or version in package-lock.json"
+# The expected message names the fixture version derived from the lockfile, so this assertion
+# must not pin the repository's current version string.
+has "$vp_17n" 'package-lock.json version "9.9.9" does not match package.json version' "17n verify-package rejects mismatched name or version in package-lock.json"
 cp "$VP_FIXTURE/package-lock.bak" "$VP_FIXTURE/package-lock.json"
 rm "$VP_FIXTURE/package-lock.bak"
+
+# 17o. a legitimate in-sync dependency bump still passes. This is the leviroutes-tcn regression:
+# package.json and package-lock.json are both updated to the same new specifier (the shape
+# `npm i -D <pkg>` produces), so the parity assertions must keep passing rather than reporting
+# an extraneous/missing dependency.
+cp "$VP_FIXTURE/package-lock.json" "$VP_FIXTURE/package-lock.bump.bak"
+( cd "$VP_FIXTURE" && node -e '
+const fs=require("fs");
+const p=JSON.parse(fs.readFileSync("package.json"));
+p.devDependencies.terser=">=5.0.0";
+fs.writeFileSync("package.json",JSON.stringify(p,null,2));
+const l=JSON.parse(fs.readFileSync("package-lock.json"));
+l.packages[""].devDependencies.terser=">=5.0.0";
+fs.writeFileSync("package-lock.json",JSON.stringify(l,null,2));
+' )
+vp_17o=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1)
+vp_17o_rc=$?
+has "$vp_17o" "verify-package: PASS" "17o verify-package accepts an in-sync dependency bump (fixture package.json derives from the lockfile)"
+[ "$vp_17o_rc" = 0 ] && ok "17o2 verify-package exits 0 on an in-sync dependency bump" || bad "17o2 expected exit 0" "got $vp_17o_rc: $vp_17o"
+cp "$VP_FIXTURE/package-lock.bump.bak" "$VP_FIXTURE/package-lock.json"
+rm "$VP_FIXTURE/package-lock.bump.bak"
+echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
 
 echo
 if [ "$FAIL" -eq 0 ]; then
