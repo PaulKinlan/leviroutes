@@ -234,7 +234,7 @@ contract_drift=$(node -e '
     .map(l => {
       const parts = l.split("\t");
       const path = parts[0].trim();
-      const suites = (parts[1] || "").trim().split(/\s+/).filter(Boolean);
+      const suites = parts.slice(1).join(" ").trim().split(/\s+/).filter(Boolean);
       return { path, suites };
     })
     .filter(({ path, suites }) => {
