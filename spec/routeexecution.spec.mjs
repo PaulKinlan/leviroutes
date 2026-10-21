@@ -187,4 +187,15 @@ describe("routing", function() {
     r.test("/x/test-val");
     expect(seen).toEqual({ x: "test-val" });
   });
+
+  it("should match literal colon strings in non-capturing groups without silent parameter mis-parse", function() {
+    var seen = null;
+    r.get("/(?:a:x)/:x", function(req) { seen = req.params; });
+
+    r.test("/aQ/:x");
+    expect(seen).toEqual(null);
+
+    r.test("/a:x/foo");
+    expect(seen).toEqual({ x: "foo" });
+  });
 });

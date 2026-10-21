@@ -65,4 +65,10 @@ describe("route parsing", function() {
     expect(r.getRoutes()[0].regex.groups["x"]).toEqual(0);
     expect(r.getRoutes()[0].regex.regexp).toEqual(/^\/(?:x)\/([^/.\\]+)$/);
   });
+
+  it("should preserve literal colon strings inside non-capturing groups without mis-binding repeated param names", function() {
+    r.get("/(?:a:x)/:x", function(){});
+    expect(r.getRoutes()[0].regex.groups["x"]).toEqual(0);
+    expect(r.getRoutes()[0].regex.regexp).toEqual(/^\/(?:a:x)\/([^/.\\]+)$/);
+  });
 });
