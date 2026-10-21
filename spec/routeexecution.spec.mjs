@@ -212,5 +212,12 @@ describe("routing", function() {
 
     r2.test("/p/a/1/2");
     expect(seen2).toEqual({ a: "a", b: "1", c: "2" });
+
+    var seen3 = null;
+    var r3 = new routes();
+    r3.get("/:action((?:run|walk))/:id", function(req) { seen3 = req.params; });
+
+    r3.test("/run/123");
+    expect(seen3).toEqual({ action: "run", id: "123" });
   });
 });
