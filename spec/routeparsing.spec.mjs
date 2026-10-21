@@ -71,4 +71,17 @@ describe("route parsing", function() {
     expect(r.getRoutes()[0].regex.groups["x"]).toEqual(0);
     expect(r.getRoutes()[0].regex.regexp).toEqual(/^\/(?:a:x)\/([^/.\\]+)$/);
   });
+
+  it("should calculate correct group indices for params following multi-capture or nested-capture custom groups", function() {
+    r.get("/:pet((cat|dog))/:id", function(){});
+    expect(r.getRoutes()[0].regex.groups["pet"]).toEqual(0);
+    expect(r.getRoutes()[0].regex.groups["id"]).toEqual(2);
+    expect(r.getRoutes()[0].regex.regexp).toEqual(/^\/((cat|dog))\/([^/.\\]+)$/);
+
+    var r2 = new routes();
+    r2.get("/p/:a((a)|(b))/:b/:c", function(){});
+    expect(r2.getRoutes()[0].regex.groups["a"]).toEqual(0);
+    expect(r2.getRoutes()[0].regex.groups["b"]).toEqual(3);
+    expect(r2.getRoutes()[0].regex.groups["c"]).toEqual(4);
+  });
 });

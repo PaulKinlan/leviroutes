@@ -198,4 +198,19 @@ describe("routing", function() {
     r.test("/a:x/foo");
     expect(seen).toEqual({ x: "foo" });
   });
+
+  it("should correctly extract parameters following multi-capture or nested-capture custom groups", function() {
+    var seen = null;
+    r.get("/:pet((cat|dog))/:id", function(req) { seen = req.params; });
+
+    r.test("/cat/42");
+    expect(seen).toEqual({ pet: "cat", id: "42" });
+
+    var seen2 = null;
+    var r2 = new routes();
+    r2.get("/p/:a((a)|(b))/:b/:c", function(req) { seen2 = req.params; });
+
+    r2.test("/p/a/1/2");
+    expect(seen2).toEqual({ a: "a", b: "1", c: "2" });
+  });
 });
