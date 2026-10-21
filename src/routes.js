@@ -115,8 +115,9 @@ const routes = function(options) {
         // regular-expression syntax in a route is deliberately left untouched.
         newRegexp += chunk.replace(/\./g, "\\.");
 
-        groups[matches[1]] = count++;
+        groups[matches[1]] = count;
         var replacement = matches[2] ? matches[2] : "([^/.\\\\]+)";
+        count += countCaptureGroups(replacement);
         newRegexp += replacement;
         lastIndex = matches.index + matches[0].length;
       }
