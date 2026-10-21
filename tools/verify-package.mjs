@@ -37,6 +37,82 @@ for (const entry of requiredEntries) {
   }
 }
 
+// Validate package-lock.json configuration, integrity hashes, and dependency parity BEFORE any execution
+const lockPath = path.join(root, 'package-lock.json');
+if (!fs.existsSync(lockPath)) {
+  console.error('verify-package: FAIL - missing package-lock.json');
+  process.exit(1);
+}
+
+let lock;
+try {
+  lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+} catch (err) {
+  console.error('verify-package: FAIL - invalid JSON in package-lock.json:', err.message);
+  process.exit(1);
+}
+
+if (lock.name !== pkg.name) {
+  console.error(`verify-package: FAIL - package-lock.json name "${lock.name}" does not match package.json name "${pkg.name}"`);
+  process.exit(1);
+}
+
+if (lock.version !== pkg.version) {
+  console.error(`verify-package: FAIL - package-lock.json version "${lock.version}" does not match package.json version "${pkg.version}"`);
+  process.exit(1);
+}
+
+if (!lock.packages || typeof lock.packages !== 'object') {
+  console.error('verify-package: FAIL - package-lock.json missing packages object');
+  process.exit(1);
+}
+
+const rootPkg = lock.packages[''] || {};
+for (const depType of ['dependencies', 'devDependencies']) {
+  const pkgDeps = pkg[depType] || {};
+  const lockDeps = rootPkg[depType] || {};
+  for (const [dep, req] of Object.entries(pkgDeps)) {
+    if (lockDeps[dep] !== req) {
+      console.error(`verify-package: FAIL - package-lock.json ${depType}["${dep}"] ("${lockDeps[dep]}") does not match package.json ("${req}")`);
+      process.exit(1);
+    }
+  }
+  for (const dep of Object.keys(lockDeps)) {
+    if (!(dep in pkgDeps)) {
+      console.error(`verify-package: FAIL - package-lock.json has extraneous ${depType}["${dep}"] not in package.json`);
+      process.exit(1);
+    }
+  }
+}
+
+const checkSri = (sri) => {
+  const parts = sri.trim().split(/\s+/);
+  if (parts.length === 0) return false;
+  for (const part of parts) {
+    const m = /^sha(512|384|1)-([A-Za-z0-9+/]+={0,2})$/.exec(part);
+    if (!m) return false;
+    const [_, alg, b64] = m;
+    const expectedLen = alg === '512' ? 64 : alg === '384' ? 48 : 20;
+    const buf = Buffer.from(b64, 'base64');
+    if (buf.length !== expectedLen || buf.toString('base64') !== b64) return false;
+  }
+  return true;
+};
+
+for (const [pkgKey, pkgEntry] of Object.entries(lock.packages)) {
+  if (pkgEntry.integrity && !checkSri(pkgEntry.integrity)) {
+    console.error(`verify-package: FAIL - package-lock.json contains invalid integrity hash for ${pkgKey}: ${pkgEntry.integrity}`);
+    process.exit(1);
+  }
+}
+
+try {
+  execSync('npm ls', { cwd: root, stdio: 'pipe' });
+} catch (err) {
+  console.error('verify-package: FAIL - npm ls dependency check failed:', err.message);
+  process.exit(1);
+}
+
 // Validate underlying scripts invoked by the prepublish lifecycle
 const testBody = (pkg.scripts?.test || '').trim();
 if (testBody !== 'jasmine') {

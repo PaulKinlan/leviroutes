@@ -128,11 +128,14 @@ hasnt "$out" "fast-gate: passed: spec/middleware.spec.mjs" "6b failing suite is 
 [ "$rc" != 0 ] && ok "6c failing suite exits non-zero" || bad "6c expected non-zero exit" "got $rc"
 STUB_FAIL=0
 
-# 7. Package.json changes select package validation
+# 7. Package.json and package-lock.json changes select package validation
 rm -f "$RUN_LOG"
 out=$(run --list --changed package.json)
 has "$out" "tools/verify-package.mjs" "7a package.json selects tools/verify-package.mjs"
 has "$out" "spec/middleware.spec.mjs" "7b package.json also selects test specs"
+out_lock=$(run --list --changed package-lock.json)
+has "$out_lock" "tools/verify-package.mjs" "7c package-lock.json selects tools/verify-package.mjs"
+has "$out_lock" "spec/middleware.spec.mjs" "7d package-lock.json also selects test specs"
 
 # 8. Stale map entry fails loudly
 cp "$ROOT/repo/tools/suite-map.tsv" "$ROOT/map.bak"
@@ -407,6 +410,7 @@ mkdir -p "$VP_FIXTURE/tools" "$VP_FIXTURE/src" "$VP_FIXTURE/spec/support"
 cp "$HERE/verify-package.mjs" "$VP_FIXTURE/tools/"
 cp "$HERE/../src/routes.js" "$VP_FIXTURE/src/"
 cp "$HERE/../spec/support/jasmine.json" "$VP_FIXTURE/spec/support/"
+cp "$HERE/../package-lock.json" "$VP_FIXTURE/package-lock.json"
 ln -s "$HERE/../node_modules" "$VP_FIXTURE/node_modules"
 
 BASE_PKG=$(cat <<'EOF'
@@ -422,6 +426,11 @@ BASE_PKG=$(cat <<'EOF'
       "browser": "./dist/routes.min.js",
       "import": "./src/routes.js"
     }
+  },
+  "devDependencies": {
+    "jasmine": "^5.1.0",
+    "jsdom": "^23.0.0",
+    "terser": "^5.27.0"
   },
   "scripts": {
     "test": "jasmine",
@@ -501,6 +510,37 @@ for config in spec/support/jasmine.mjs spec/support/jasmine.js jasmine.mjs jasmi
   fi
   rm "$VP_FIXTURE/$config"
 done
+
+# 17j. missing package-lock.json is rejected
+mv "$VP_FIXTURE/package-lock.json" "$VP_FIXTURE/package-lock.hidden"
+vp_17j=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
+has "$vp_17j" "missing package-lock.json" "17j verify-package rejects missing package-lock.json"
+mv "$VP_FIXTURE/package-lock.hidden" "$VP_FIXTURE/package-lock.json"
+
+# 17k. invalid JSON in package-lock.json is rejected
+cp "$VP_FIXTURE/package-lock.json" "$VP_FIXTURE/package-lock.bak"
+echo "not valid json" > "$VP_FIXTURE/package-lock.json"
+vp_17k=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
+has "$vp_17k" "invalid JSON in package-lock.json" "17k verify-package rejects invalid JSON in package-lock.json"
+
+# 17l. corrupt SRI integrity in package-lock.json (e.g. sha512-CORRUPT) is rejected
+sed '0,/"integrity": "sha512-/s//"integrity": "sha512-CORRUPT/' "$VP_FIXTURE/package-lock.bak" > "$VP_FIXTURE/package-lock.json"
+vp_17l=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
+has "$vp_17l" "contains invalid integrity hash" "17l verify-package rejects corrupt SRI integrity in package-lock.json"
+
+# 17m. mismatched dependencies between package.json and package-lock.json is rejected
+cp "$VP_FIXTURE/package-lock.bak" "$VP_FIXTURE/package-lock.json"
+( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json"));p.devDependencies.jasmine="^6.0.0";fs.writeFileSync("package.json",JSON.stringify(p))' )
+vp_17m=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
+has "$vp_17m" 'package-lock.json devDependencies["jasmine"]' "17m verify-package rejects mismatched dependencies between package.json and package-lock.json"
+echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
+
+# 17n. mismatched name/version in package-lock.json is rejected
+( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const l=JSON.parse(fs.readFileSync("package-lock.json"));l.version="9.9.9";fs.writeFileSync("package-lock.json",JSON.stringify(l))' )
+vp_17n=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
+has "$vp_17n" 'package-lock.json version "9.9.9" does not match package.json version "1.0.0"' "17n verify-package rejects mismatched name or version in package-lock.json"
+cp "$VP_FIXTURE/package-lock.bak" "$VP_FIXTURE/package-lock.json"
+rm "$VP_FIXTURE/package-lock.bak"
 
 echo
 if [ "$FAIL" -eq 0 ]; then
