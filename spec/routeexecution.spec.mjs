@@ -109,4 +109,24 @@ describe("routing", function() {
     r.test("http://example.com/deep/user/42");
     expect(matched).toEqual(null);
   });
+
+  it("should extract correct named params when route contains regex capture groups", function() {
+    var params = null;
+    r.get("/foo/([a-z]+)/:id", function(req) {
+      params = req.params;
+    });
+
+    r.test("/foo/bar/123");
+    expect(params).toEqual({ id: "123" });
+  });
+
+  it("should handle multiple named params mixed with regex capture groups", function() {
+    var params = null;
+    r.get("/user/([a-z]+)/:id/(\\d+)/:action", function(req) {
+      params = req.params;
+    });
+
+    r.test("/user/admin/42/99/edit");
+    expect(params).toEqual({ id: "42", action: "edit" });
+  });
 });

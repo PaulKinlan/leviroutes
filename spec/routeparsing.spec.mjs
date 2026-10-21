@@ -27,4 +27,10 @@ describe("route parsing", function() {
     expect(r.getRoutes()[0].regex.groups).toEqual({ "category": 0, "format": 1 });
     expect(r.getRoutes()[0].regex.regexp).toEqual(/^\/([^/.\\]+)\.([^/.\\]+)$/);
   });
+
+  it("should calculate correct group index when preceded by regex capture groups", function() {
+    r.get("/foo/([a-z]+)/:id", function(){});
+    expect(r.getRoutes()[0].regex.groups["id"]).toEqual(1);
+    expect(r.getRoutes()[0].regex.regexp).toEqual(/^\/foo\/([a-z]+)\/([^/.\\]+)$/);
+  });
 });

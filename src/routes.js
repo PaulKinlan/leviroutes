@@ -55,6 +55,42 @@ const routes = function(options) {
     }
   };
 
+  var countCaptureGroups = function(reStr) {
+    var count = 0;
+    var inCharClass = false;
+    var escaped = false;
+    for (var i = 0; i < reStr.length; i++) {
+      var c = reStr[i];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (c === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (inCharClass) {
+        if (c === "]") inCharClass = false;
+        continue;
+      }
+      if (c === "[") {
+        inCharClass = true;
+        continue;
+      }
+      if (c === "(") {
+        if (reStr[i + 1] === "?") {
+          // (?<name> is a named capturing group; (?:, (?=, (?!, (?<=, (?<! are non-capturing
+          if (reStr[i + 2] === "<" && reStr[i + 3] !== "=" && reStr[i + 3] !== "!") {
+            count++;
+          }
+        } else {
+          count++;
+        }
+      }
+    }
+    return count;
+  };
+
   this.parseRoute = function(path) {
     if (matcherKind === "urlpattern") return compileUrlPattern(path);
 
@@ -71,7 +107,12 @@ const routes = function(options) {
 
       // Find the places to edit.
       while(matches = nameRegexp.exec(loc)) {
-        groups[matches[1]] = i++;
+        if (matches.index > 1 && loc.slice(matches.index - 2, matches.index) === "(?") {
+          continue;
+        }
+        var prefix = loc.slice(0, matches.index);
+        var customGroupsBefore = countCaptureGroups(prefix);
+        groups[matches[1]] = i++ + customGroupsBefore;
         newRegexp = newRegexp.replace(matches[0], "([^/.\\\\]+)"); 
       }
 
