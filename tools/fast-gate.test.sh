@@ -231,8 +231,19 @@ contract_drift=$(node -e '
     .split("\n")
     .map(l => l.trim())
     .filter(l => l && !l.startsWith("#") && !l.startsWith("!"))
-    .map(l => l.split("\t")[0].trim())
-    .filter(p => !p.includes("*") && !p.startsWith("spec/"));
+    .map(l => {
+      const parts = l.split("\t");
+      const path = parts[0].trim();
+      const suites = (parts[1] || "").trim().split(/\s+/).filter(Boolean);
+      return { path, suites };
+    })
+    .filter(({ path, suites }) => {
+      if (path.includes("*")) return false;
+      // Exclude self-mapping specs (e.g. spec/foo.spec.mjs -> [spec/foo.spec.mjs])
+      if (path.startsWith("spec/") && suites.length === 1 && suites[0] === path) return false;
+      return true;
+    })
+    .map(({ path }) => path);
 
   const contractKeys = new Set(Object.keys(contract));
   const missingKeys = mappedKeys.filter(k => !contractKeys.has(k));
