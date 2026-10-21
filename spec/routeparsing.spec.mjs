@@ -84,4 +84,18 @@ describe("route parsing", function() {
     expect(r2.getRoutes()[0].regex.groups["b"]).toEqual(3);
     expect(r2.getRoutes()[0].regex.groups["c"]).toEqual(4);
   });
+
+  it("should throw an error when a custom pattern contains no capturing groups", function() {
+    expect(function() {
+      r.get("/:a(?:x)/:id", function(){});
+    }).toThrowError("custom pattern for :a contains no capturing group");
+
+    expect(function() {
+      r.get("/p/:a(?:[a-z]+)/:b/:c", function(){});
+    }).toThrowError("custom pattern for :a contains no capturing group");
+
+    expect(function() {
+      r.get("/item/:id(?=[0-9]+)", function(){});
+    }).toThrowError("custom pattern for :id contains no capturing group");
+  });
 });
