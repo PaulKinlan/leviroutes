@@ -1,18 +1,52 @@
 {
+  "package-lock.json": [
+    "spec/fixtureisolation.spec.mjs",
+    "spec/middleware.spec.mjs",
+    "spec/routeexecution.spec.mjs",
+    "spec/routemanagement.spec.mjs",
+    "spec/routeparsing.spec.mjs",
+    "spec/routesframework.spec.mjs",
+    "tools/verify-package.mjs"
+  ],
+  "package.json": [
+    "spec/fixtureisolation.spec.mjs",
+    "spec/middleware.spec.mjs",
+    "spec/routeexecution.spec.mjs",
+    "spec/routemanagement.spec.mjs",
+    "spec/routeparsing.spec.mjs",
+    "spec/routesframework.spec.mjs",
+    "tools/verify-package.mjs"
+  ],
   "src/routes.js": [
     "spec/middleware.spec.mjs",
     "spec/routeexecution.spec.mjs",
     "spec/routemanagement.spec.mjs",
     "spec/routeparsing.spec.mjs",
-    "spec/routesframework.spec.mjs"
+    "spec/routesframework.spec.mjs",
+    "spec/fixtureisolation.spec.mjs",
+    "spec/urlpatternmatcher.spec.mjs",
+    "spec/serverdispatch.spec.mjs"
+  ],
+  "tools/check.conf": [
+    "tools/fast-gate.test.sh",
+    "tools/verify-package.mjs"
   ],
   "tools/check-cmd.sh": [
+    "tools/fast-gate.test.sh",
+    "tools/verify-package.mjs"
+  ],
+  "tools/fast-gate.sh": [
+    "tools/fast-gate.test.sh",
+    "tools/verify-package.mjs"
+  ],
+  "tools/fast-gate.test.sh": [
     "tools/fast-gate.test.sh"
   ],
   "tools/full-gate.sh": [
-    "tools/fast-gate.test.sh"
+    "tools/fast-gate.test.sh",
+    "tools/verify-package.mjs"
   ],
-  "tools/fast-gate.sh": [
+  "tools/suite-map.tsv": [
     "tools/fast-gate.test.sh"
   ],
   "tools/verify-package.mjs": [

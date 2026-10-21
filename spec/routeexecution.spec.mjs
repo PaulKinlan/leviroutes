@@ -109,4 +109,93 @@ describe("routing", function() {
     r.test("http://example.com/deep/user/42");
     expect(matched).toEqual(null);
   });
+
+  it("should extract correct named params when route contains regex capture groups", function() {
+    var params = null;
+    r.get("/foo/([a-z]+)/:id", function(req) {
+      params = req.params;
+    });
+
+    r.test("/foo/bar/123");
+    expect(params).toEqual({ id: "123" });
+  });
+
+  it("should handle multiple named params mixed with regex capture groups", function() {
+    var params = null;
+    r.get("/user/([a-z]+)/:id/(\\d+)/:action", function(req) {
+      params = req.params;
+    });
+
+    r.test("/user/admin/42/99/edit");
+    expect(params).toEqual({ id: "42", action: "edit" });
+  });
+
+  it("should create req.params with null prototype so parameter names cannot collide with Object.prototype", function() {
+    var seen = null;
+    r.get("/items/:hasOwnProperty", function(req) { seen = req; });
+
+    r.test("/items/test-value");
+    expect(seen.params.hasOwnProperty).toEqual("test-value");
+    expect(Object.prototype.hasOwnProperty.call(seen.params, "hasOwnProperty")).toBe(true);
+    expect(Object.getPrototypeOf(seen.params)).toBeNull();
+  });
+
+  it("should match named params with custom regex groups and extract params correctly", function() {
+    var seen = null;
+    r.get("/user/:id(\\d+)", function(req) { seen = req.params; });
+
+    r.test("/user/42");
+    expect(seen).toEqual({ id: "42" });
+
+    seen = null;
+    r.test("/user/abc");
+    expect(seen).toEqual(null);
+  });
+
+  it("should match named params with character-class groups", function() {
+    var seen = null;
+    r.get("/user/:id([a-z]+)", function(req) { seen = req.params; });
+
+    r.test("/user/ab");
+    expect(seen).toEqual({ id: "ab" });
+
+    seen = null;
+    r.test("/user/12");
+    expect(seen).toEqual(null);
+  });
+
+  it("should match hyphenated named parameters", function() {
+    var seen = null;
+    r.get("/user/:user-id", function(req) { seen = req.params; });
+
+    r.test("/user/42");
+    expect(seen).toEqual({ "user-id": "42" });
+  });
+
+  it("should correctly extract parameters following custom-group parameters", function() {
+    var seen = null;
+    r.get("/api/:version(v\\d+)/:resource/:id", function(req) { seen = req.params; });
+
+    r.test("/api/v1/users/7");
+    expect(seen).toEqual({ version: "v1", resource: "users", id: "7" });
+  });
+
+  it("should match routes with non-capturing groups and extract named parameters by offset", function() {
+    var seen = null;
+    r.get("/(?:x)/:x", function(req) { seen = req.params; });
+
+    r.test("/x/test-val");
+    expect(seen).toEqual({ x: "test-val" });
+  });
+
+  it("should match literal colon strings in non-capturing groups without silent parameter mis-parse", function() {
+    var seen = null;
+    r.get("/(?:a:x)/:x", function(req) { seen = req.params; });
+
+    r.test("/aQ/:x");
+    expect(seen).toEqual(null);
+
+    r.test("/a:x/foo");
+    expect(seen).toEqual({ x: "foo" });
+  });
 });

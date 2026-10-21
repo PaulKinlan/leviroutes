@@ -55,30 +55,77 @@ const routes = function(options) {
     }
   };
 
+  var countCaptureGroups = function(reStr) {
+    var count = 0;
+    var inCharClass = false;
+    var escaped = false;
+    for (var i = 0; i < reStr.length; i++) {
+      var c = reStr[i];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (c === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (inCharClass) {
+        if (c === "]") inCharClass = false;
+        continue;
+      }
+      if (c === "[") {
+        inCharClass = true;
+        continue;
+      }
+      if (c === "(") {
+        if (reStr[i + 1] === "?") {
+          // (?<name> is a named capturing group; (?:, (?=, (?!, (?<=, (?<! are non-capturing
+          if (reStr[i + 2] === "<" && reStr[i + 3] !== "=" && reStr[i + 3] !== "!") {
+            count++;
+          }
+        } else {
+          count++;
+        }
+      }
+    }
+    return count;
+  };
+
   this.parseRoute = function(path) {
     if (matcherKind === "urlpattern") return compileUrlPattern(path);
 
     this.parseGroups = function(loc) {
-      var nameRegexp = new RegExp(":([^/.\\\\]+)", "g"); 
-      // A literal dot in a route is path punctuation, not the regular-expression "any
-      // character": without this, '/:category.:format' matches '/foo' with
-      // {category: 'f', format: 'o'}, and '/a/b.json' with {category: 'b'}. Other
-      // regular-expression syntax in a route is deliberately left untouched.
-      var newRegexp = "" + loc.replace(/\./g, "\\.");
+      var nameRegexp = new RegExp(":([^/.(\\\\]+)(\\((?:[^\\\\)]|\\\\.)*\\))?", "g"); 
       var groups = {};
       var matches = null;
-      var i = 0;
+      var lastIndex = 0;
+      var newRegexp = "";
+      var count = 0;
 
       // Find the places to edit.
       while(matches = nameRegexp.exec(loc)) {
-        groups[matches[1]] = i++;
-        newRegexp = newRegexp.replace(matches[0], "([^/.\\\\]+)"); 
+        if (matches.index > 1 && loc.slice(matches.index - 2, matches.index) === "(?") {
+          continue;
+        }
+        var chunk = loc.slice(lastIndex, matches.index);
+        count += countCaptureGroups(chunk);
+        // A literal dot in a route is path punctuation, not the regular-expression "any
+        // character": without this, '/:category.:format' matches '/foo' with
+        // {category: 'f', format: 'o'}, and '/a/b.json' with {category: 'b'}. Other
+        // regular-expression syntax in a route is deliberately left untouched.
+        newRegexp += chunk.replace(/\./g, "\\.");
+
+        groups[matches[1]] = count++;
+        var replacement = matches[2] ? matches[2] : "([^/.\\\\]+)";
+        newRegexp += replacement;
+        lastIndex = matches.index + matches[0].length;
       }
 
+      var tail = loc.slice(lastIndex);
       // Match the whole path: end-anchored so '/category' does not match
       // '/category/extra', start-anchored so '/user/:id' does not match '/deep/user/42'
       // (the old end-only anchor was an accident that made every route a suffix match).
-      newRegexp = "^" + newRegexp + "$"; 
+      newRegexp = "^" + newRegexp + tail.replace(/\./g, "\\.") + "$"; 
 
       return { "groups" : groups, "regexp": new RegExp(newRegexp)};
     };
@@ -127,7 +174,7 @@ const routes = function(options) {
 
         // Only named groups become req.params: URLPattern also reports positional
         // keys ('0', '1', ...) for wildcards, which are not named parameters.
-        params = {};
+        params = Object.create(null);
         var named = patternMatch.pathname.groups;
         for(var name in named) {
           if (/^\d+$/.test(name) == false && typeof named[name] === "string") params[name] = named[name];
@@ -136,14 +183,14 @@ const routes = function(options) {
         var routeMatch = route.regex.regexp.exec(path);
         if(!!routeMatch == false) continue;
 
-        params = {};
+        params = Object.create(null);
         for(var g in route.regex.groups) {
           var group = route.regex.groups[g];
           params[g] = routeMatch[group + 1];
         }
       }
 
-      var values = {};
+      var values = Object.create(null);
       if(e && e.target instanceof HTMLFormElement) {
         var form = e.target;
         var items = form.length;

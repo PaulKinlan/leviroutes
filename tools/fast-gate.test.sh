@@ -215,6 +215,74 @@ dead_keys=$(node -e '
 [ -z "$dead_keys" ] && ok "9f every coverage-contract key names a path in the tree" \
   || bad "9f coverage contract has dead keys" "$dead_keys"
 
+# 9g. The coverage contract suites and mapped keys must match the suite map selection
+contract_drift=$(node -e '
+  const fs = require("fs");
+  const { execSync } = require("child_process");
+  const contractPath = process.argv[1];
+  const root = process.argv[2];
+  const suiteMapPath = root + "/tools/suite-map.tsv";
+
+  const contract = JSON.parse(fs.readFileSync(contractPath, "utf8"));
+  const suiteMapText = fs.readFileSync(suiteMapPath, "utf8");
+
+  // Literal non-glob paths (excluding specs that map to themselves) mapped by suite-map.tsv
+  const mappedKeys = suiteMapText
+    .split("\n")
+    .map(l => l.trim())
+    .filter(l => l && !l.startsWith("#") && !l.startsWith("!"))
+    .map(l => {
+      const parts = l.split("\t");
+      const path = parts[0].trim();
+      const suites = parts.slice(1).join(" ").trim().split(/\s+/).filter(Boolean);
+      return { path, suites };
+    })
+    .filter(({ path, suites }) => {
+      if (path.includes("*")) return false;
+      // Exclude self-mapping specs (e.g. spec/foo.spec.mjs -> [spec/foo.spec.mjs])
+      if (path.startsWith("spec/") && suites.length === 1 && suites[0] === path) return false;
+      return true;
+    })
+    .map(({ path }) => path);
+
+  const contractKeys = new Set(Object.keys(contract));
+  const missingKeys = mappedKeys.filter(k => !contractKeys.has(k));
+
+  const errors = [];
+  if (missingKeys.length) {
+    errors.push("missing contract keys for mapped paths: " + missingKeys.join(" "));
+  }
+
+  for (const key of Object.keys(contract)) {
+    const out = execSync(`bash "${root}/tools/fast-gate.sh" --list --changed "${key}"`, { cwd: root, encoding: "utf8" });
+    const mapSuites = out
+      .split("\n")
+      .map(s => s.trim())
+      .filter(s => s && !s.startsWith("fast-gate:") && !s.startsWith("witnessed:"));
+
+    const contractSuites = contract[key] || [];
+    const cSet = new Set(contractSuites);
+    const mSet = new Set(mapSuites);
+
+    const missing = mapSuites.filter(s => !cSet.has(s));
+    const extra = contractSuites.filter(s => !mSet.has(s));
+
+    const keyErrors = [];
+    if (missing.length) keyErrors.push("missing=[" + missing.join(" ") + "]");
+    if (extra.length) keyErrors.push("extra=[" + extra.join(" ") + "]");
+    if (keyErrors.length) {
+      errors.push(key + ": " + keyErrors.join(" "));
+    }
+  }
+
+  if (errors.length) {
+    console.log(errors.join("; "));
+    process.exit(1);
+  }
+' "$CONTRACT" "$REAL_ROOT" 2>&1)
+[ -z "$contract_drift" ] && ok "9g coverage contract suites match suite-map selection for all keys" \
+  || bad "9g coverage contract drift" "$contract_drift"
+
 echo "=== Section 2: check-cmd.sh and check.conf validation ==="
 
 TEST_HOME="$ROOT/home"

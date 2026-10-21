@@ -115,4 +115,15 @@ describe("urlpattern matcher (opt-in)", function() {
     submit("http://example.com/deep/test");
     expect(fired).toEqual(null);
   });
+
+  it("creates req.params with null prototype", function() {
+    if (!supported) return pending("URLPattern is not available in this environment");
+    var seen = null;
+    var app = new routes({ matcher: "urlpattern" });
+    app.get("/items/:hasOwnProperty", function(req) { seen = req; });
+
+    app.test("/items/test-value");
+    expect(seen.params.hasOwnProperty).toEqual("test-value");
+    expect(Object.getPrototypeOf(seen.params)).toBeNull();
+  });
 });

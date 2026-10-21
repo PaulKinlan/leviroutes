@@ -110,6 +110,19 @@ describe("server dispatch", function() {
     expect(seen.values).toEqual({ q: "hello" });
   });
 
+  it("should safely store prototype-named query parameters in req.values without collision", function() {
+    var seen = null;
+    r.get("/search", function(req) { seen = req; });
+
+    r.dispatch({ url: "/search?hasOwnProperty=true&toString=val&__proto__=pollute", method: "GET" });
+
+    expect(seen.values.hasOwnProperty).toEqual("true");
+    expect(seen.values.toString).toEqual("val");
+    expect(seen.values.__proto__).toEqual("pollute");
+    expect(Object.prototype.hasOwnProperty.call(seen.values, "hasOwnProperty")).toBe(true);
+    expect(Object.getPrototypeOf(seen.values)).toBeNull();
+  });
+
   it("should run the middleware chain before the route callback", function() {
     var order = [];
     r.use(function(req, next) { order.push("mw1"); next(); });
