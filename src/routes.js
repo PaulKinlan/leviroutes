@@ -96,33 +96,36 @@ const routes = function(options) {
 
     this.parseGroups = function(loc) {
       var nameRegexp = new RegExp(":([^/.(\\\\]+)(\\((?:[^\\\\)]|\\\\.)*\\))?", "g"); 
-      // A literal dot in a route is path punctuation, not the regular-expression "any
-      // character": without this, '/:category.:format' matches '/foo' with
-      // {category: 'f', format: 'o'}, and '/a/b.json' with {category: 'b'}. Other
-      // regular-expression syntax in a route is deliberately left untouched.
-      var newRegexp = "" + loc.replace(/\./g, "\\.");
       var groups = {};
       var matches = null;
-      var searchIndex = 0;
+      var lastIndex = 0;
+      var newRegexp = "";
+      var count = 0;
 
       // Find the places to edit.
       while(matches = nameRegexp.exec(loc)) {
         if (matches.index > 1 && loc.slice(matches.index - 2, matches.index) === "(?") {
           continue;
         }
-        var target = matches[0].replace(/\./g, "\\.");
+        var chunk = loc.slice(lastIndex, matches.index);
+        count += countCaptureGroups(chunk);
+        // A literal dot in a route is path punctuation, not the regular-expression "any
+        // character": without this, '/:category.:format' matches '/foo' with
+        // {category: 'f', format: 'o'}, and '/a/b.json' with {category: 'b'}. Other
+        // regular-expression syntax in a route is deliberately left untouched.
+        newRegexp += chunk.replace(/\./g, "\\.");
+
+        groups[matches[1]] = count++;
         var replacement = matches[2] ? matches[2] : "([^/.\\\\]+)";
-        var targetIndex = newRegexp.indexOf(target, searchIndex);
-        var prefix = newRegexp.slice(0, targetIndex);
-        groups[matches[1]] = countCaptureGroups(prefix);
-        newRegexp = newRegexp.slice(0, targetIndex) + replacement + newRegexp.slice(targetIndex + target.length);
-        searchIndex = targetIndex + replacement.length;
+        newRegexp += replacement;
+        lastIndex = matches.index + matches[0].length;
       }
 
+      var tail = loc.slice(lastIndex);
       // Match the whole path: end-anchored so '/category' does not match
       // '/category/extra', start-anchored so '/user/:id' does not match '/deep/user/42'
       // (the old end-only anchor was an accident that made every route a suffix match).
-      newRegexp = "^" + newRegexp + "$"; 
+      newRegexp = "^" + newRegexp + tail.replace(/\./g, "\\.") + "$"; 
 
       return { "groups" : groups, "regexp": new RegExp(newRegexp)};
     };

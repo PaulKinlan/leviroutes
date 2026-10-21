@@ -59,4 +59,10 @@ describe("route parsing", function() {
     expect(r.getRoutes()[0].regex.groups["id"]).toEqual(2);
     expect(r.getRoutes()[0].regex.regexp).toEqual(/^\/api\/(v\d+)\/([^/.\\]+)\/([^/.\\]+)$/);
   });
+
+  it("should preserve skipped non-capturing groups with colon patterns and compile params by offset", function() {
+    r.get("/(?:x)/:x", function(){});
+    expect(r.getRoutes()[0].regex.groups["x"]).toEqual(0);
+    expect(r.getRoutes()[0].regex.regexp).toEqual(/^\/(?:x)\/([^/.\\]+)$/);
+  });
 });

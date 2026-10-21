@@ -179,4 +179,12 @@ describe("routing", function() {
     r.test("/api/v1/users/7");
     expect(seen).toEqual({ version: "v1", resource: "users", id: "7" });
   });
+
+  it("should match routes with non-capturing groups and extract named parameters by offset", function() {
+    var seen = null;
+    r.get("/(?:x)/:x", function(req) { seen = req.params; });
+
+    r.test("/x/test-val");
+    expect(seen).toEqual({ x: "test-val" });
+  });
 });
