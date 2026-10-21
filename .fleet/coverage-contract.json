@@ -9,17 +9,27 @@
     "spec/urlpatternmatcher.spec.mjs",
     "spec/serverdispatch.spec.mjs"
   ],
-  "tools/check-cmd.sh": [
+  "tools/check.conf": [
     "tools/fast-gate.test.sh",
     "tools/verify-package.mjs"
   ],
-  "tools/full-gate.sh": [
+  "tools/check-cmd.sh": [
     "tools/fast-gate.test.sh",
     "tools/verify-package.mjs"
   ],
   "tools/fast-gate.sh": [
     "tools/fast-gate.test.sh",
     "tools/verify-package.mjs"
+  ],
+  "tools/fast-gate.test.sh": [
+    "tools/fast-gate.test.sh"
+  ],
+  "tools/full-gate.sh": [
+    "tools/fast-gate.test.sh",
+    "tools/verify-package.mjs"
+  ],
+  "tools/suite-map.tsv": [
+    "tools/fast-gate.test.sh"
   ],
   "tools/verify-package.mjs": [
     "tools/verify-package.mjs"
