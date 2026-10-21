@@ -163,4 +163,20 @@ describe("routing", function() {
     r.test("/user/12");
     expect(seen).toEqual(null);
   });
+
+  it("should match hyphenated named parameters", function() {
+    var seen = null;
+    r.get("/user/:user-id", function(req) { seen = req.params; });
+
+    r.test("/user/42");
+    expect(seen).toEqual({ "user-id": "42" });
+  });
+
+  it("should correctly extract parameters following custom-group parameters", function() {
+    var seen = null;
+    r.get("/api/:version(v\\d+)/:resource/:id", function(req) { seen = req.params; });
+
+    r.test("/api/v1/users/7");
+    expect(seen).toEqual({ version: "v1", resource: "users", id: "7" });
+  });
 });

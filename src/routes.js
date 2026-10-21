@@ -95,7 +95,7 @@ const routes = function(options) {
     if (matcherKind === "urlpattern") return compileUrlPattern(path);
 
     this.parseGroups = function(loc) {
-      var nameRegexp = new RegExp(":([a-zA-Z0-9_]+)(\\((?:[^\\\\)]|\\\\.)*\\))?", "g"); 
+      var nameRegexp = new RegExp(":([^/.(\\\\]+)(\\((?:[^\\\\)]|\\\\.)*\\))?", "g"); 
       // A literal dot in a route is path punctuation, not the regular-expression "any
       // character": without this, '/:category.:format' matches '/foo' with
       // {category: 'f', format: 'o'}, and '/a/b.json' with {category: 'b'}. Other
@@ -103,19 +103,20 @@ const routes = function(options) {
       var newRegexp = "" + loc.replace(/\./g, "\\.");
       var groups = {};
       var matches = null;
-      var i = 0;
+      var searchIndex = 0;
 
       // Find the places to edit.
       while(matches = nameRegexp.exec(loc)) {
         if (matches.index > 1 && loc.slice(matches.index - 2, matches.index) === "(?") {
           continue;
         }
-        var prefix = loc.slice(0, matches.index);
-        var customGroupsBefore = countCaptureGroups(prefix);
-        groups[matches[1]] = i++ + customGroupsBefore;
         var target = matches[0].replace(/\./g, "\\.");
         var replacement = matches[2] ? matches[2] : "([^/.\\\\]+)";
-        newRegexp = newRegexp.replace(target, replacement); 
+        var targetIndex = newRegexp.indexOf(target, searchIndex);
+        var prefix = newRegexp.slice(0, targetIndex);
+        groups[matches[1]] = countCaptureGroups(prefix);
+        newRegexp = newRegexp.slice(0, targetIndex) + replacement + newRegexp.slice(targetIndex + target.length);
+        searchIndex = targetIndex + replacement.length;
       }
 
       // Match the whole path: end-anchored so '/category' does not match

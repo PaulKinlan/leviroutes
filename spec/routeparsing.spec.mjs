@@ -45,4 +45,18 @@ describe("route parsing", function() {
     expect(r.getRoutes()[0].regex.groups["id"]).toEqual(0);
     expect(r.getRoutes()[0].regex.regexp).toEqual(/^\/user\/([a-z]+)$/);
   });
+
+  it("should parse hyphenated named parameter names", function() {
+    r.get("/user/:user-id", function(){});
+    expect(r.getRoutes()[0].regex.groups["user-id"]).toEqual(0);
+    expect(r.getRoutes()[0].regex.regexp).toEqual(/^\/user\/([^/.\\]+)$/);
+  });
+
+  it("should calculate correct group indices for params following custom-group params", function() {
+    r.get("/api/:version(v\\d+)/:resource/:id", function(){});
+    expect(r.getRoutes()[0].regex.groups["version"]).toEqual(0);
+    expect(r.getRoutes()[0].regex.groups["resource"]).toEqual(1);
+    expect(r.getRoutes()[0].regex.groups["id"]).toEqual(2);
+    expect(r.getRoutes()[0].regex.regexp).toEqual(/^\/api\/(v\d+)\/([^/.\\]+)\/([^/.\\]+)$/);
+  });
 });
