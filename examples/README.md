@@ -122,4 +122,4 @@ To create your own example:
 3. Define your routes and middleware
 4. Test in a browser with a local web server (start from project root)
 
-See the main [README.md](../../README.md) for full API documentation.
+See the main [README.md](../README.md) for full API documentation.
