@@ -130,7 +130,11 @@ const routes = function(options) {
       // Match the whole path: end-anchored so '/category' does not match
       // '/category/extra', start-anchored so '/user/:id' does not match '/deep/user/42'
       // (the old end-only anchor was an accident that made every route a suffix match).
-      newRegexp = "^" + newRegexp + tail.replace(/\./g, "\\.") + "$"; 
+      // The anchors must bind to the whole route, not to the first and last alternative:
+      // a bare "^" + route + "$" makes §/index.html|/§ compile to /^\/index\.html|\/$/,
+      // which also matches '/x/' - a path neither alternative names (leviroutes-bym). The
+      // group is non-capturing, so every recorded group index in 'groups' is unchanged.
+      newRegexp = "^(?:" + newRegexp + tail.replace(/\./g, "\\.") + ")$"; 
 
       return { "groups" : groups, "regexp": new RegExp(newRegexp)};
     };
