@@ -96,6 +96,35 @@ describe("routing", function() {
     expect(fired).toEqual(1);
   });
 
+  it("should not route a path that only shares one alternative of an alternation route", function() {
+    var matched = [];
+    r.get("/index.html|/", function(req) {
+      matched.push(req.url);
+    });
+
+    // '/x/' ends with '/' but is neither '/index.html' nor '/' - the pre-fix pattern
+    // /^\/index\.html|\/$/ matched it through the stray end anchor (leviroutes-bym).
+    r.test("/x/");
+    expect(matched).toEqual([]);
+
+    r.test("/index.html");
+    r.test("/");
+    expect(matched).toEqual(["/index.html", "/"]);
+  });
+
+  it("should still match the whole path inside the chosen alternative of an alternation route", function() {
+    var params = null;
+    r.get("/a|/b/:id", function(req) {
+      params = req.params;
+    });
+
+    r.test("/b/deep/42");
+    expect(params).toEqual(null);
+
+    r.test("/b/42");
+    expect(params).toEqual({ id: "42" });
+  });
+
   it("should match an absolute URL by its pathname", function() {
     var matched = null;
     r.get("/user/:id", function(req) {
