@@ -457,14 +457,12 @@ has "$clean_vp_out" "verify-package: PASS" "17a verify-package passes on clean p
 # 17b-17o2. Negative branch assertions and in-sync dependency bump parity check.
 # Evaluated in a single runner to avoid 20+ cold-start Node process launches while strictly
 # validating exact error messages, exit semantics, and prevention of execution side-effects.
-while IFS=$'\t' read -r status name detail; do
-  [ -z "$status" ] && continue
-  if [ "$status" = "ok" ]; then
-    ok "$name"
-  else
-    bad "$name" "$detail"
-  fi
-done < <(node --input-type=module -e '
+# Fail-closed execution: output is redirected to files so non-zero process exit codes
+# (e.g. exit 37, unhandled exceptions) cannot be masked by process substitution (leviroutes-zs1).
+RUNNER_OUT="$VP_FIXTURE/section4-runner.out"
+RUNNER_ERR="$VP_FIXTURE/section4-runner.err"
+runner_rc=0
+node --input-type=module -e '
 import fs from "node:fs";
 import path from "node:path";
 
@@ -698,7 +696,46 @@ function reset() {
   }
   reset();
 }
-' "$VP_FIXTURE")
+' "$VP_FIXTURE" > "$RUNNER_OUT" 2> "$RUNNER_ERR" || runner_rc=$?
+
+if [ "$runner_rc" != 0 ]; then
+  bad "17 Section 4 in-process runner exited with code $runner_rc" "$(cat "$RUNNER_ERR")"
+fi
+
+seen_tests=0
+while IFS=$'\t' read -r status name detail; do
+  [ -z "$status" ] && continue
+  seen_tests=$((seen_tests + 1))
+  if [ "$status" = "ok" ]; then
+    ok "$name"
+  else
+    bad "$name" "$detail"
+  fi
+done < "$RUNNER_OUT"
+
+if [ "$seen_tests" -eq 19 ]; then
+  ok "17p Section 4 accounted for all 19 assertions"
+else
+  bad "17p Section 4 expected 19 assertions" "only executed $seen_tests assertions"
+fi
+
+# 17q. simulated runner crash (exit 37) with zero checks is caught and fails loudly (leviroutes-zs1 repro)
+sim_out="$VP_FIXTURE/sim-crash.out"
+sim_err="$VP_FIXTURE/sim-crash.err"
+sim_rc=0
+node -e 'process.exit(37)' > "$sim_out" 2> "$sim_err" || sim_rc=$?
+sim_failed=0
+[ "$sim_rc" != 0 ] && sim_failed=1
+sim_seen=0
+while IFS=$'\t' read -r s _; do
+  [ -n "$s" ] && sim_seen=$((sim_seen + 1))
+done < "$sim_out"
+[ "$sim_seen" -lt 19 ] && sim_failed=1
+if [ "$sim_failed" = 1 ]; then
+  ok "17q simulated runner exit 37 fails closed and rejects zero checks"
+else
+  bad "17q runner exit 37 was masked as PASS" "sim_rc=$sim_rc sim_seen=$sim_seen"
+fi
 
 echo
 if [ "$FAIL" -eq 0 ]; then
