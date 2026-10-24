@@ -18,7 +18,24 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
 MAP="$HERE/suite-map.tsv"
-JOBS=${FAST_GATE_JOBS:-4}
+# Suite concurrency defaults to this VM's core count, capped at 4: the fleet runs several
+# lanes per VM, and a hard-coded 4 meant two concurrent gates put 8 cold node processes on
+# a 2-core box, stretching an 8-suite selection past the 60s bound (leviroutes-43f).
+CORES=$(nproc 2>/dev/null || echo 2)
+case $CORES in ''|*[!0-9]*) CORES=2 ;; esac
+JOBS=${FAST_GATE_JOBS:-$CORES}
+[ "$JOBS" -ge 1 ] 2>/dev/null || JOBS=1
+[ "$JOBS" -le 4 ] || JOBS=4
+
+# Persistent V8 compile cache: importing jsdom costs seconds of cold CPU per suite, and the
+# cache cuts roughly 30% of that on every later run (leviroutes-43f). The dir is shared per
+# user so worktrees warm each other; callers may override it, and if the location is not
+# writable the gate proceeds without the cache rather than failing.
+if [ -z "${NODE_COMPILE_CACHE:-}" ]; then
+  NODE_COMPILE_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/leviroutes-node-compile-cache"
+  export NODE_COMPILE_CACHE
+  mkdir -p "$NODE_COMPILE_CACHE" 2>/dev/null || unset NODE_COMPILE_CACHE
+fi
 
 [ -f "$MAP" ] || { echo "fast-gate: no $MAP — the map IS the gate; refusing to guess" >&2; exit 1; }
 
