@@ -70,14 +70,13 @@ chmod +x "$ROOT/runner"
 export FAST_GATE_RUNNER="$ROOT/runner" RUN_LOG="$ROOT/run.log"
 
 run() { ( cd "$ROOT/repo" && FAST_GATE_RUNNER="$FAST_GATE_RUNNER" RUN_LOG="$RUN_LOG" STUB_FAIL="${STUB_FAIL:-0}" bash "$GATE" "$@" 2>&1 ); }
-run_rc() { ( cd "$ROOT/repo" && FAST_GATE_RUNNER="$FAST_GATE_RUNNER" RUN_LOG="$RUN_LOG" STUB_FAIL="${STUB_FAIL:-0}" bash "$GATE" "$@" >/dev/null 2>&1 ); echo $?; }
 
 echo "=== Section 1: fast-gate.sh selection and fail-loud behaviour ==="
 
 # 1. Mapped source file selects all 8 specs and executes them
 rm -f "$RUN_LOG"
 out=$(run --changed src/routes.js)
-rc=$(run_rc --changed src/routes.js)
+rc=$?
 has "$out" "fast-gate: running: spec/middleware.spec.mjs" "1a mapped source selects middleware spec"
 has "$out" "fast-gate: running: spec/routeexecution.spec.mjs" "1b ... and routeexecution spec"
 has "$out" "fast-gate: running: spec/routemanagement.spec.mjs" "1c ... and routemanagement spec"
@@ -92,7 +91,7 @@ has "$out" "fast-gate: PASS (8 suite(s), 1 changed file(s))" "1i terminal PASS l
 
 # 2. Unmapped changed file fails loudly
 out=$(run --changed src/unknown.js)
-rc=$(run_rc --changed src/unknown.js)
+rc=$?
 has "$out" "fast-gate: unmapped: src/unknown.js" "2a unmapped changed file emitted with marker"
 [ "$rc" != 0 ] && ok "2b unmapped file exits non-zero" || bad "2b expected non-zero exit" "got $rc"
 hasnt "$out" "fast-gate: passed:" "2c no passed marker emitted on unmapped change"
@@ -100,7 +99,7 @@ hasnt "$out" "fast-gate: passed:" "2c no passed marker emitted on unmapped chang
 # 3. Changed spec file maps to itself
 rm -f "$RUN_LOG"
 out=$(run --changed spec/middleware.spec.mjs)
-rc=$(run_rc --changed spec/middleware.spec.mjs)
+rc=$?
 has "$out" "fast-gate: running: spec/middleware.spec.mjs" "3a changed spec file maps to itself"
 hasnt "$out" "fast-gate: running: spec/routeparsing.spec.mjs" "3b does not select unrelated specs"
 has "$out" "fast-gate: PASS (1 suite(s), 1 changed file(s))" "3c terminal PASS line for single spec"
@@ -108,7 +107,7 @@ has "$out" "fast-gate: PASS (1 suite(s), 1 changed file(s))" "3c terminal PASS l
 
 # 4. Exempt path runs nothing and exits 0
 out=$(run --changed README.md)
-rc=$(run_rc --changed README.md)
+rc=$?
 has "$out" "fast-gate: no suites affected by 1 changed file(s) (1 exempt)" "4a exempt path selects nothing"
 [ "$rc" = 0 ] && ok "4b exempt path exits 0" || bad "4b expected exit 0" "got $rc"
 hasnt "$out" "fast-gate: unmapped:" "4c exempt path is not reported unmapped"
@@ -122,7 +121,7 @@ has "$out" "spec/middleware.spec.mjs" "5a --list prints selected suite"
 # 6. Failing suite fails the gate
 STUB_FAIL=1
 out=$(run --changed spec/middleware.spec.mjs)
-rc=$(run_rc --changed spec/middleware.spec.mjs)
+rc=$?
 has "$out" "fast-gate: failed: spec/middleware.spec.mjs" "6a failing suite is reported as failed"
 hasnt "$out" "fast-gate: passed: spec/middleware.spec.mjs" "6b failing suite is not reported as passed"
 [ "$rc" != 0 ] && ok "6c failing suite exits non-zero" || bad "6c expected non-zero exit" "got $rc"
@@ -141,7 +140,7 @@ has "$out_lock" "spec/middleware.spec.mjs" "7d package-lock.json also selects te
 cp "$ROOT/repo/tools/suite-map.tsv" "$ROOT/map.bak"
 printf 'src/routes.js\tspec/nonexistent.spec.mjs\n' > "$ROOT/repo/tools/suite-map.tsv"
 out=$(run --changed src/routes.js)
-rc=$(run_rc --changed src/routes.js)
+rc=$?
 has "$out" "fast-gate: missing: spec/nonexistent.spec.mjs" "8a stale map entry is named"
 [ "$rc" != 0 ] && ok "8b stale map entry exits non-zero" || bad "8b expected non-zero exit" "got $rc"
 cp "$ROOT/map.bak" "$ROOT/repo/tools/suite-map.tsv"
@@ -149,7 +148,7 @@ cp "$ROOT/map.bak" "$ROOT/repo/tools/suite-map.tsv"
 # 9. Missing map file refuses to guess
 mv "$ROOT/repo/tools/suite-map.tsv" "$ROOT/map.hidden"
 out=$(run --changed src/routes.js)
-rc=$(run_rc --changed src/routes.js)
+rc=$?
 has "$out" "the map IS the gate" "9a missing map refuses to guess"
 [ "$rc" != 0 ] && ok "9b missing map exits non-zero" || bad "9b expected non-zero exit" "got $rc"
 mv "$ROOT/map.hidden" "$ROOT/repo/tools/suite-map.tsv"
@@ -185,7 +184,7 @@ fi
 cp "$ROOT/repo/tools/suite-map.tsv" "$ROOT/map.bak"
 printf 'retired-ghost/**\tspec/middleware.spec.mjs\n' >> "$ROOT/repo/tools/suite-map.tsv"
 out=$(run --changed src/routes.js)
-rc=$(run_rc --changed src/routes.js)
+rc=$?
 has "$out" "fast-gate: dead row: retired-ghost/**" "9d1 dead map row is named"
 [ "$rc" != 0 ] && ok "9d2 dead map row exits non-zero" || bad "9d2 expected non-zero exit" "got $rc"
 hasnt "$out" "fast-gate: PASS" "9d3 dead map row does not report PASS"
@@ -193,7 +192,7 @@ hasnt "$out" "fast-gate: PASS" "9d3 dead map row does not report PASS"
 # ... and a literal path row is checked the same way (SpecRunner.html was the other half of 62g).
 printf 'retired-ghost.js\ttools/fast-gate.test.sh\n' >> "$ROOT/repo/tools/suite-map.tsv"
 out=$(run --list --changed src/routes.js)
-rc=$(run_rc --list --changed src/routes.js)
+rc=$?
 has "$out" "fast-gate: dead row: retired-ghost.js" "9d4 dead literal row is named"
 [ "$rc" != 0 ] && ok "9d5 dead literal row exits non-zero even for --list" || bad "9d5 expected non-zero exit" "got $rc"
 cp "$ROOT/map.bak" "$ROOT/repo/tools/suite-map.tsv"
@@ -450,125 +449,293 @@ fi
 # 17a. clean control passes
 echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
 cp "$HERE/../spec/support/jasmine.json" "$VP_FIXTURE/spec/support/jasmine.json"
-clean_vp_out=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1)
+clean_vp_out=$(cd "$VP_FIXTURE" && VERIFY_SKIP_NPM_LS=1 node tools/verify-package.mjs 2>&1)
 clean_vp_rc=$?
 has "$clean_vp_out" "verify-package: PASS" "17a verify-package passes on clean package.json and jasmine config"
 [ "$clean_vp_rc" = 0 ] && ok "17a2 verify-package exits 0 on valid configuration" || bad "17a2 expected exit 0" "got $clean_vp_rc"
 
-# 17b. masked scripts.test is rejected
-( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json"));p.scripts.test="jasmine || true";fs.writeFileSync("package.json",JSON.stringify(p))' )
-vp_17b=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17b" 'scripts.test must be exactly "jasmine"' "17b verify-package rejects masked scripts.test"
+# 17b-17o2. Negative branch assertions and in-sync dependency bump parity check.
+# Evaluated in a single runner to avoid 20+ cold-start Node process launches while strictly
+# validating exact error messages, exit semantics, and prevention of execution side-effects.
+# Fail-closed execution: output is redirected to files so non-zero process exit codes
+# (e.g. exit 37, unhandled exceptions) cannot be masked by process substitution (leviroutes-zs1).
+RUNNER_OUT="$VP_FIXTURE/section4-runner.out"
+RUNNER_ERR="$VP_FIXTURE/section4-runner.err"
+runner_rc=0
+node --input-type=module -e '
+import fs from "node:fs";
+import path from "node:path";
 
-# 17c. redefined scripts['verify:package'] is rejected
-echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
-( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json"));p.scripts.test="jasmine";p.scripts["verify:package"]="true";fs.writeFileSync("package.json",JSON.stringify(p))' )
-vp_17c=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17c" 'scripts["verify:package"] must execute "node tools/verify-package.mjs"' "17c verify-package rejects redefined verify:package"
+const fixture = process.argv[1];
+const { verifyPackage } = await import(path.join(fixture, "tools/verify-package.mjs"));
 
-# 17d. poisoned build:min is rejected BEFORE command execution (no side-effect file created)
-echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
-PWNED_FILE="$VP_FIXTURE/pwned"
-( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json"));p.scripts["verify:package"]="node tools/verify-package.mjs";p.scripts["build:min"]="touch pwned && terser src/routes.js -o dist/routes.min.js -c -m --comments false";fs.writeFileSync("package.json",JSON.stringify(p))' )
-vp_17d=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17d" 'scripts["build:min"] must be exactly "terser' "17d verify-package rejects modified build:min"
-[ ! -f "$PWNED_FILE" ] && ok "17d2 verify-package validates build:min BEFORE command execution" || bad "17d2 poisoned build command executed before validation!" "pwned file created"
+const pkgPath = path.join(fixture, "package.json");
+const lockPath = path.join(fixture, "package-lock.json");
+const basePkgContent = fs.readFileSync(pkgPath, "utf8");
+const baseLockContent = fs.readFileSync(lockPath, "utf8");
 
-# 17e. unallowlisted lifecycle hook is rejected
-echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
-( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json"));p.scripts["postbuild:min"]="echo hook";fs.writeFileSync("package.json",JSON.stringify(p))' )
-vp_17e=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17e" 'defines unallowlisted lifecycle hook scripts["postbuild:min"]' "17e verify-package rejects unallowlisted npm lifecycle hook"
+function emit(status, name, detail = "") {
+  process.stdout.write(`${status}\t${name}\t${detail}\n`);
+}
 
-# 17f. prepublishOnly shell metacharacters (; | &) are rejected
-echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
-( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json"));p.scripts.prepublishOnly="npm test ; npm run verify:package ; npm run build";fs.writeFileSync("package.json",JSON.stringify(p))' )
-vp_17f=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17f" 'forbidden shell metacharacters' "17f verify-package rejects non-&& shell metacharacters in prepublishOnly"
+function reset() {
+  fs.writeFileSync(pkgPath, basePkgContent);
+  fs.writeFileSync(lockPath, baseLockContent);
+}
 
-# 17g. prepublishOnly missing build leg is rejected
-echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
-( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json"));p.scripts.prepublishOnly="npm test && npm run verify:package";fs.writeFileSync("package.json",JSON.stringify(p))' )
-vp_17g=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17g" 'must strictly chain test, verify:package, and build commands in order' "17g verify-package rejects prepublishOnly missing build leg"
+// 17b. masked scripts.test is rejected
+{
+  const p = JSON.parse(basePkgContent);
+  p.scripts.test = "jasmine || true";
+  fs.writeFileSync(pkgPath, JSON.stringify(p));
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("scripts.test must be exactly \"jasmine\"")) {
+    emit("ok", "17b verify-package rejects masked scripts.test");
+  } else {
+    emit("bad", "17b verify-package rejects masked scripts.test", `got: ${JSON.stringify(res)}`);
+  }
+  reset();
+}
 
-# 17h. narrowed spec/support/jasmine.json is rejected
-echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
-echo '{"spec_dir":"spec","spec_files":["routeparsing.spec.mjs"]}' > "$VP_FIXTURE/spec/support/jasmine.json"
-vp_17h=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17h" 'spec/support/jasmine.json must specify spec_dir "spec" and spec_files' "17h verify-package rejects narrowed spec/support/jasmine.json"
+// 17c. redefined scripts["verify:package"] is rejected
+{
+  const p = JSON.parse(basePkgContent);
+  p.scripts.test = "jasmine";
+  p.scripts["verify:package"] = "true";
+  fs.writeFileSync(pkgPath, JSON.stringify(p));
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("scripts[\"verify:package\"] must execute \"node tools/verify-package.mjs\"")) {
+    emit("ok", "17c verify-package rejects redefined verify:package");
+  } else {
+    emit("bad", "17c verify-package rejects redefined verify:package", `got: ${JSON.stringify(res)}`);
+  }
+  reset();
+}
 
-# 17i. Jasmine loads .mjs and .js before .json from spec/support. Keep JSON valid
-# while introducing an overriding config; the guard must reject it before building.
-cp "$HERE/../spec/support/jasmine.json" "$VP_FIXTURE/spec/support/jasmine.json"
-for config in spec/support/jasmine.mjs spec/support/jasmine.js jasmine.mjs jasmine.js; do
-  mkdir -p "$VP_FIXTURE/$(dirname "$config")"
-  printf 'export default { spec_dir: "spec", spec_files: ["routeparsing.spec.mjs"] };\n' > "$VP_FIXTURE/$config"
-  rm -f "$VP_FIXTURE/dist/routes.min.js"
-  vp_override=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1)
-  vp_override_rc=$?
-  if [ "$vp_override_rc" != 0 ] && grep -qF "unexpected Jasmine config $config" <<<"$vp_override" && [ ! -e "$VP_FIXTURE/dist/routes.min.js" ]; then
-    ok "17i verify-package rejects $config before build"
+// 17d. poisoned build:min is rejected BEFORE command execution (no side-effect file created)
+{
+  const pwnedFile = path.join(fixture, "pwned");
+  if (fs.existsSync(pwnedFile)) fs.unlinkSync(pwnedFile);
+  const p = JSON.parse(basePkgContent);
+  p.scripts["verify:package"] = "node tools/verify-package.mjs";
+  p.scripts["build:min"] = "touch pwned && terser src/routes.js -o dist/routes.min.js -c -m --comments false";
+  fs.writeFileSync(pkgPath, JSON.stringify(p));
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("scripts[\"build:min\"] must be exactly \"terser")) {
+    emit("ok", "17d verify-package rejects modified build:min");
+  } else {
+    emit("bad", "17d verify-package rejects modified build:min", `got: ${JSON.stringify(res)}`);
+  }
+  if (!fs.existsSync(pwnedFile)) {
+    emit("ok", "17d2 verify-package validates build:min BEFORE command execution");
+  } else {
+    emit("bad", "17d2 verify-package validates build:min BEFORE command execution", "pwned file created");
+    fs.unlinkSync(pwnedFile);
+  }
+  reset();
+}
+
+// 17e. unallowlisted lifecycle hook is rejected
+{
+  const p = JSON.parse(basePkgContent);
+  p.scripts["postbuild:min"] = "echo hook";
+  fs.writeFileSync(pkgPath, JSON.stringify(p));
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("defines unallowlisted lifecycle hook scripts[\"postbuild:min\"]")) {
+    emit("ok", "17e verify-package rejects unallowlisted npm lifecycle hook");
+  } else {
+    emit("bad", "17e verify-package rejects unallowlisted npm lifecycle hook", `got: ${JSON.stringify(res)}`);
+  }
+  reset();
+}
+
+// 17f. prepublishOnly shell metacharacters (; | &) are rejected
+{
+  const p = JSON.parse(basePkgContent);
+  p.scripts.prepublishOnly = "npm test ; npm run verify:package ; npm run build";
+  fs.writeFileSync(pkgPath, JSON.stringify(p));
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("forbidden shell metacharacters")) {
+    emit("ok", "17f verify-package rejects non-&& shell metacharacters in prepublishOnly");
+  } else {
+    emit("bad", "17f verify-package rejects non-&& shell metacharacters in prepublishOnly", `got: ${JSON.stringify(res)}`);
+  }
+  reset();
+}
+
+// 17g. prepublishOnly missing build leg is rejected
+{
+  const p = JSON.parse(basePkgContent);
+  p.scripts.prepublishOnly = "npm test && npm run verify:package";
+  fs.writeFileSync(pkgPath, JSON.stringify(p));
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("must strictly chain test, verify:package, and build commands in order")) {
+    emit("ok", "17g verify-package rejects prepublishOnly missing build leg");
+  } else {
+    emit("bad", "17g verify-package rejects prepublishOnly missing build leg", `got: ${JSON.stringify(res)}`);
+  }
+  reset();
+}
+
+// 17h. narrowed spec/support/jasmine.json is rejected
+{
+  const jasminePath = path.join(fixture, "spec/support/jasmine.json");
+  const jasmineOrig = fs.readFileSync(jasminePath, "utf8");
+  fs.writeFileSync(jasminePath, "{\"spec_dir\":\"spec\",\"spec_files\":[\"routeparsing.spec.mjs\"]}");
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("spec/support/jasmine.json must specify spec_dir \"spec\" and spec_files")) {
+    emit("ok", "17h verify-package rejects narrowed spec/support/jasmine.json");
+  } else {
+    emit("bad", "17h verify-package rejects narrowed spec/support/jasmine.json", `got: ${JSON.stringify(res)}`);
+  }
+  fs.writeFileSync(jasminePath, jasmineOrig);
+  reset();
+}
+
+// 17i. Jasmine loads .mjs and .js before .json from spec/support
+{
+  const distFile = path.join(fixture, "dist/routes.min.js");
+  for (const config of ["spec/support/jasmine.mjs", "spec/support/jasmine.js", "jasmine.mjs", "jasmine.js"]) {
+    const configPath = path.join(fixture, config);
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, "export default { spec_dir: \"spec\", spec_files: [\"routeparsing.spec.mjs\"] };\n");
+    if (fs.existsSync(distFile)) fs.unlinkSync(distFile);
+    const res = await verifyPackage(fixture, { exitOnError: false });
+    if (!res.ok && res.error.includes(`unexpected Jasmine config ${config}`) && !fs.existsSync(distFile)) {
+      emit("ok", `17i verify-package rejects ${config} before build`);
+    } else {
+      emit("bad", `17i verify-package accepted ${config} or built before rejecting it`, `res=${JSON.stringify(res)}`);
+    }
+    fs.unlinkSync(configPath);
+  }
+  reset();
+}
+
+// 17j. missing package-lock.json is rejected
+{
+  const hiddenPath = path.join(fixture, "package-lock.hidden");
+  fs.renameSync(lockPath, hiddenPath);
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("missing package-lock.json")) {
+    emit("ok", "17j verify-package rejects missing package-lock.json");
+  } else {
+    emit("bad", "17j verify-package rejects missing package-lock.json", `got: ${JSON.stringify(res)}`);
+  }
+  fs.renameSync(hiddenPath, lockPath);
+  reset();
+}
+
+// 17k. invalid JSON in package-lock.json is rejected
+{
+  fs.writeFileSync(lockPath, "not valid json");
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("invalid JSON in package-lock.json")) {
+    emit("ok", "17k verify-package rejects invalid JSON in package-lock.json");
+  } else {
+    emit("bad", "17k verify-package rejects invalid JSON in package-lock.json", `got: ${JSON.stringify(res)}`);
+  }
+  reset();
+}
+
+// 17l. corrupt SRI integrity in package-lock.json is rejected
+{
+  const corrupt = baseLockContent.replace(/"integrity": "sha512-/, "\"integrity\": \"sha512-CORRUPT");
+  fs.writeFileSync(lockPath, corrupt);
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("contains invalid integrity hash")) {
+    emit("ok", "17l verify-package rejects corrupt SRI integrity in package-lock.json");
+  } else {
+    emit("bad", "17l verify-package rejects corrupt SRI integrity in package-lock.json", `got: ${JSON.stringify(res)}`);
+  }
+  reset();
+}
+
+// 17m. mismatched dependencies between package.json and package-lock.json is rejected
+{
+  const p = JSON.parse(basePkgContent);
+  p.devDependencies.jasmine = "^6.0.0";
+  fs.writeFileSync(pkgPath, JSON.stringify(p));
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("package-lock.json devDependencies[\"jasmine\"]")) {
+    emit("ok", "17m verify-package rejects mismatched dependencies between package.json and package-lock.json");
+  } else {
+    emit("bad", "17m verify-package rejects mismatched dependencies between package.json and package-lock.json", `got: ${JSON.stringify(res)}`);
+  }
+  reset();
+}
+
+// 17n. mismatched name/version in package-lock.json is rejected
+{
+  const l = JSON.parse(baseLockContent);
+  l.version = "9.9.9";
+  fs.writeFileSync(lockPath, JSON.stringify(l));
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("package-lock.json version \"9.9.9\" does not match package.json version")) {
+    emit("ok", "17n verify-package rejects mismatched name or version in package-lock.json");
+  } else {
+    emit("bad", "17n verify-package rejects mismatched name or version in package-lock.json", `got: ${JSON.stringify(res)}`);
+  }
+  reset();
+}
+
+// 17o. in-sync dependency bump passes static parity validation without cold-start build penalty
+{
+  const p = JSON.parse(basePkgContent);
+  p.devDependencies.terser = ">=5.0.0";
+  fs.writeFileSync(pkgPath, JSON.stringify(p, null, 2));
+  const l = JSON.parse(baseLockContent);
+  l.packages[""].devDependencies.terser = ">=5.0.0";
+  fs.writeFileSync(lockPath, JSON.stringify(l, null, 2));
+  const res = await verifyPackage(fixture, { exitOnError: false, skipExecution: true });
+  if (res.ok && res.output.includes("verify-package: PASS")) {
+    emit("ok", "17o verify-package accepts an in-sync dependency bump (fixture package.json derives from the lockfile)");
+    emit("ok", "17o2 verify-package exits 0 on an in-sync dependency bump");
+  } else {
+    emit("bad", "17o verify-package accepts an in-sync dependency bump (fixture package.json derives from the lockfile)", `got: ${JSON.stringify(res)}`);
+    emit("bad", "17o2 verify-package exits 0 on an in-sync dependency bump", `got: ${JSON.stringify(res)}`);
+  }
+  reset();
+}
+' "$VP_FIXTURE" > "$RUNNER_OUT" 2> "$RUNNER_ERR" || runner_rc=$?
+
+if [ "$runner_rc" != 0 ]; then
+  bad "17 Section 4 in-process runner exited with code $runner_rc" "$(cat "$RUNNER_ERR")"
+fi
+
+seen_tests=0
+while IFS=$'\t' read -r status name detail; do
+  [ -z "$status" ] && continue
+  seen_tests=$((seen_tests + 1))
+  if [ "$status" = "ok" ]; then
+    ok "$name"
   else
-    bad "17i verify-package accepted $config or built before rejecting it" "rc=$vp_override_rc output=$vp_override"
+    bad "$name" "$detail"
   fi
-  rm "$VP_FIXTURE/$config"
-done
+done < "$RUNNER_OUT"
 
-# 17j. missing package-lock.json is rejected
-mv "$VP_FIXTURE/package-lock.json" "$VP_FIXTURE/package-lock.hidden"
-vp_17j=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17j" "missing package-lock.json" "17j verify-package rejects missing package-lock.json"
-mv "$VP_FIXTURE/package-lock.hidden" "$VP_FIXTURE/package-lock.json"
+if [ "$seen_tests" -eq 19 ]; then
+  ok "17p Section 4 accounted for all 19 assertions"
+else
+  bad "17p Section 4 expected 19 assertions" "only executed $seen_tests assertions"
+fi
 
-# 17k. invalid JSON in package-lock.json is rejected
-cp "$VP_FIXTURE/package-lock.json" "$VP_FIXTURE/package-lock.bak"
-echo "not valid json" > "$VP_FIXTURE/package-lock.json"
-vp_17k=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17k" "invalid JSON in package-lock.json" "17k verify-package rejects invalid JSON in package-lock.json"
-
-# 17l. corrupt SRI integrity in package-lock.json (e.g. sha512-CORRUPT) is rejected
-sed '0,/"integrity": "sha512-/s//"integrity": "sha512-CORRUPT/' "$VP_FIXTURE/package-lock.bak" > "$VP_FIXTURE/package-lock.json"
-vp_17l=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17l" "contains invalid integrity hash" "17l verify-package rejects corrupt SRI integrity in package-lock.json"
-
-# 17m. mismatched dependencies between package.json and package-lock.json is rejected
-cp "$VP_FIXTURE/package-lock.bak" "$VP_FIXTURE/package-lock.json"
-( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json"));p.devDependencies.jasmine="^6.0.0";fs.writeFileSync("package.json",JSON.stringify(p))' )
-vp_17m=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17m" 'package-lock.json devDependencies["jasmine"]' "17m verify-package rejects mismatched dependencies between package.json and package-lock.json"
-echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
-
-# 17n. mismatched name/version in package-lock.json is rejected
-( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const l=JSON.parse(fs.readFileSync("package-lock.json"));l.version="9.9.9";fs.writeFileSync("package-lock.json",JSON.stringify(l))' )
-vp_17n=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-# The expected message names the fixture version derived from the lockfile, so this assertion
-# must not pin the repository's current version string.
-has "$vp_17n" 'package-lock.json version "9.9.9" does not match package.json version' "17n verify-package rejects mismatched name or version in package-lock.json"
-cp "$VP_FIXTURE/package-lock.bak" "$VP_FIXTURE/package-lock.json"
-rm "$VP_FIXTURE/package-lock.bak"
-
-# 17o. a legitimate in-sync dependency bump still passes. This is the leviroutes-tcn regression:
-# package.json and package-lock.json are both updated to the same new specifier (the shape
-# `npm i -D <pkg>` produces), so the parity assertions must keep passing rather than reporting
-# an extraneous/missing dependency.
-cp "$VP_FIXTURE/package-lock.json" "$VP_FIXTURE/package-lock.bump.bak"
-( cd "$VP_FIXTURE" && node -e '
-const fs=require("fs");
-const p=JSON.parse(fs.readFileSync("package.json"));
-p.devDependencies.terser=">=5.0.0";
-fs.writeFileSync("package.json",JSON.stringify(p,null,2));
-const l=JSON.parse(fs.readFileSync("package-lock.json"));
-l.packages[""].devDependencies.terser=">=5.0.0";
-fs.writeFileSync("package-lock.json",JSON.stringify(l,null,2));
-' )
-vp_17o=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1)
-vp_17o_rc=$?
-has "$vp_17o" "verify-package: PASS" "17o verify-package accepts an in-sync dependency bump (fixture package.json derives from the lockfile)"
-[ "$vp_17o_rc" = 0 ] && ok "17o2 verify-package exits 0 on an in-sync dependency bump" || bad "17o2 expected exit 0" "got $vp_17o_rc: $vp_17o"
-cp "$VP_FIXTURE/package-lock.bump.bak" "$VP_FIXTURE/package-lock.json"
-rm "$VP_FIXTURE/package-lock.bump.bak"
-echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
+# 17q. simulated runner crash (exit 37) with zero checks is caught and fails loudly (leviroutes-zs1 repro)
+sim_out="$VP_FIXTURE/sim-crash.out"
+sim_err="$VP_FIXTURE/sim-crash.err"
+sim_rc=0
+node -e 'process.exit(37)' > "$sim_out" 2> "$sim_err" || sim_rc=$?
+sim_failed=0
+[ "$sim_rc" != 0 ] && sim_failed=1
+sim_seen=0
+while IFS=$'\t' read -r s _; do
+  [ -n "$s" ] && sim_seen=$((sim_seen + 1))
+done < "$sim_out"
+[ "$sim_seen" -lt 19 ] && sim_failed=1
+if [ "$sim_failed" = 1 ]; then
+  ok "17q simulated runner exit 37 fails closed and rejects zero checks"
+else
+  bad "17q runner exit 37 was masked as PASS" "sim_rc=$sim_rc sim_seen=$sim_seen"
+fi
 
 echo
 if [ "$FAIL" -eq 0 ]; then
