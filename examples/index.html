@@ -20,6 +20,15 @@
       border-bottom: 3px solid #3498db;
       padding-bottom: 10px;
     }
+
+    /* The 900px body suits the card grid, but full-width prose lines run to
+       ~100-110 characters - far past the 45-75ch comfort band. Clamp prose
+       blocks instead. */
+    .example-card p,
+    .example-card li,
+    .info-box {
+      max-width: 65ch;
+    }
     
     h2 {
       color: #34495e;
