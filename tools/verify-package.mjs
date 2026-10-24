@@ -106,13 +106,6 @@ for (const [pkgKey, pkgEntry] of Object.entries(lock.packages)) {
   }
 }
 
-try {
-  execSync('npm ls', { cwd: root, stdio: 'pipe' });
-} catch (err) {
-  console.error('verify-package: FAIL - npm ls dependency check failed:', err.message);
-  process.exit(1);
-}
-
 // Validate underlying scripts invoked by the prepublish lifecycle
 const testBody = (pkg.scripts?.test || '').trim();
 if (testBody !== 'jasmine') {
@@ -219,6 +212,15 @@ try {
 }
 if (jasmineConfig.spec_dir !== 'spec' || !Array.isArray(jasmineConfig.spec_files) || !jasmineConfig.spec_files.includes('**/*[sS]pec.?(m)js')) {
   console.error('verify-package: FAIL - spec/support/jasmine.json must specify spec_dir "spec" and spec_files ["**/*[sS]pec.?(m)js"]');
+  process.exit(1);
+}
+
+// Check installed dependencies only after all static configuration checks. Negative
+// validation must not pay for npm startup, but a valid package still checks its tree.
+try {
+  execSync('npm ls', { cwd: root, stdio: 'pipe' });
+} catch (err) {
+  console.error('verify-package: FAIL - npm ls dependency check failed:', err.message);
   process.exit(1);
 }
 
