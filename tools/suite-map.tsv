@@ -22,15 +22,21 @@ tools/full-gate.sh	tools/fast-gate.test.sh tools/verify-package.mjs
 tools/suite-map.tsv	tools/fast-gate.test.sh
 tools/check.conf	tools/fast-gate.test.sh tools/verify-package.mjs
 tools/check-cmd.sh	tools/fast-gate.test.sh tools/verify-package.mjs
-spec/urlpatternmatcher.spec.mjs	spec/urlpatternmatcher.spec.mjs
-spec/serverdispatch.spec.mjs	spec/serverdispatch.spec.mjs
+# The gate self-tests (fast-gate.test.sh 9f/9g) consume the coverage contract, so a contract
+# edit must re-run them. The literal row wins over the !.fleet/** exemption below because
+# suite selection is consulted before exemptions (leviroutes-jo7).
+.fleet/coverage-contract.json	tools/fast-gate.test.sh
+# Changed spec/*.spec.mjs|*.spec.js files with no row map to themselves inside fast-gate.sh.
+# An explicit row for a spec file OVERRIDES that self-map (fast-gate.test.sh 3e), so a spec
+# row here is live config, not dead shorthand for the built-in rule.
+
 
 # Retired paths (SpecRunner.html, lib/, tests/) deliberately have no rows: nothing exists there, so
 # a change under them must fail loudly as 'unmapped' rather than select unrelated suites
 # (leviroutes-62g). The gate enforces that a row never outlives its path.
 
 # --- Exemptions: documentation, static demos, CI metadata ---
-!.fleet/**	# fleet configuration and coverage contract
+!.fleet/**	# fleet configuration (coverage-contract.json is mapped to the self-tests above)
 !*.md	# top-level documentation
 !**/*.md	# nested documentation
 !LICENCE	# license file

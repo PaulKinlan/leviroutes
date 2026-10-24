@@ -35,6 +35,7 @@ touch "$ROOT/repo/spec/routeparsing.spec.mjs"
 touch "$ROOT/repo/spec/routesframework.spec.mjs"
 touch "$ROOT/repo/spec/fixtureisolation.spec.mjs"
 touch "$ROOT/repo/spec/urlpatternmatcher.spec.mjs"
+touch "$ROOT/repo/spec/serverdispatch.spec.mjs"
 
 # Materialise a file for every row in the map under test, so the map's own dead-row check
 # (leviroutes-62g) sees a tree where each row still describes something: <path> becomes that
@@ -105,12 +106,38 @@ hasnt "$out" "fast-gate: running: spec/routeparsing.spec.mjs" "3b does not selec
 has "$out" "fast-gate: PASS (1 suite(s), 1 changed file(s))" "3c terminal PASS line for single spec"
 [ "$rc" = 0 ] && ok "3d exit 0 for spec change" || bad "3d expected exit 0" "got $rc"
 
+# 3e. An explicit map row for a spec file overrides the built-in self-map: the map is read
+# before the fallback, so spec rows are live config and an edit to one takes effect
+# (leviroutes-jo7: the fallback returned first and silently shadowed every spec row).
+cp "$ROOT/repo/tools/suite-map.tsv" "$ROOT/map.bak"
+printf 'spec/urlpatternmatcher.spec.mjs\tspec/middleware.spec.mjs\n' >> "$ROOT/repo/tools/suite-map.tsv"
+out=$(run --list --changed spec/urlpatternmatcher.spec.mjs)
+rc=$?
+[ "$out" = "spec/middleware.spec.mjs" ] && ok "3e explicit spec row overrides the self-map" || bad "3e spec row was ignored" "got: $out"
+[ "$rc" = 0 ] && ok "3f override selection exits 0" || bad "3f expected exit 0" "got $rc"
+cp "$ROOT/map.bak" "$ROOT/repo/tools/suite-map.tsv"
+
 # 4. Exempt path runs nothing and exits 0
 out=$(run --changed README.md)
 rc=$?
 has "$out" "fast-gate: no suites affected by 1 changed file(s) (1 exempt)" "4a exempt path selects nothing"
 [ "$rc" = 0 ] && ok "4b exempt path exits 0" || bad "4b expected exit 0" "got $rc"
 hasnt "$out" "fast-gate: unmapped:" "4c exempt path is not reported unmapped"
+
+# 4d. The coverage contract is consumed by this suite (9f/9g), so editing it selects the gate
+# self-tests instead of falling through the !.fleet/** exemption (leviroutes-jo7: the file
+# defining the gate's coverage duty was the one file the fast gate never re-tested).
+out=$(run --list --changed .fleet/coverage-contract.json)
+rc=$?
+has "$out" "tools/fast-gate.test.sh" "4d changed coverage contract selects the gate self-tests"
+hasnt "$out" "no suites affected" "4e contract change is mapped, not exempt"
+[ "$rc" = 0 ] && ok "4e2 contract-change selection exits 0" || bad "4e2 expected exit 0" "got $rc"
+
+# 4f. Other .fleet/** files keep their exemption.
+out=$(run --changed .fleet/other-config.json)
+rc=$?
+has "$out" "no suites affected by 1 changed file(s) (1 exempt)" "4f non-contract .fleet files stay exempt"
+[ "$rc" = 0 ] && ok "4f2 exempt .fleet file exits 0" || bad "4f2 expected exit 0" "got $rc"
 
 # 5. --list prints selection and runs nothing
 rm -f "$RUN_LOG"
@@ -243,6 +270,9 @@ contract_drift=$(node -e '
       if (path.includes("*")) return false;
       // Exclude self-mapping specs (e.g. spec/foo.spec.mjs -> [spec/foo.spec.mjs])
       if (path.startsWith("spec/") && suites.length === 1 && suites[0] === path) return false;
+      // The coverage contract is covered by this suite itself (map row -> tools/fast-gate.test.sh,
+      // tests 4d/4e): it cannot carry its own contract key without being its own oracle (jo7).
+      if (path === ".fleet/coverage-contract.json") return false;
       return true;
     })
     .map(({ path }) => path);
