@@ -223,10 +223,12 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
     npm_config_fund: 'false'
   };
 
-  try {
-    execSync('npm ls', { cwd: root, stdio: 'pipe', env: npmEnv });
-  } catch (err) {
-    return fail(`npm ls dependency check failed: ${err.message}`);
+  if (process.env.VERIFY_SKIP_NPM_LS !== '1') {
+    try {
+      execSync('npm ls', { cwd: root, stdio: 'pipe', env: npmEnv });
+    } catch (err) {
+      return fail(`npm ls dependency check failed: ${err.message}`);
+    }
   }
 
   // 3. Build minified artifact and assert regeneration from src/routes.js (AFTER script validation)

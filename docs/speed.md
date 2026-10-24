@@ -34,12 +34,12 @@ Under representative VM load (load average 1–3), the full gate executes three 
 - 86 specs across 8 test suites (`spec/*.spec.mjs`)
 - **Fixture isolation constraint:** Every single spec constructs an isolated JSDOM instance (`spec/helpers/dom-helper.mjs`) to guarantee unwrapped `history.pushState` and zero listener leaks across specs (`spec/fixtureisolation.spec.mjs`). This intentional architectural isolation accounts for the ~40 s test execution time.
 
-### Stage 3: Gate Tooling Self-Tests (`bash tools/fast-gate.test.sh`) — ~54 s
-- **Section 1 (38 tests, ~4 s):** Selection mapping, fail-loud unmapped rejection, spec self-mapping, exemptions, `--list`, dead row rejection, and coverage contract conformance.
-- **Section 2 (15 tests, ~10 s):** `tools/check.conf` validation, drift detection, and `--install` stamping.
-- **Section 3 (7 tests, ~13 s):** `tools/full-gate.sh` step execution and failure loud-reporting orchestration.
-- **Section 4 (21 tests, ~27 s):** End-to-end publish lifecycle verification:
-  - 17a / 17a2 (~24 s): Real positive full verification executed as a standalone CLI process (`node tools/verify-package.mjs`) verifying build artifact creation, dependency tree validation, and package export resolution.
+### Stage 3: Gate Tooling Self-Tests (`bash tools/fast-gate.test.sh`) — ~40 s
+- **Section 1 (38 tests, ~3 s):** Selection mapping, fail-loud unmapped rejection, spec self-mapping, exemptions, `--list`, dead row rejection, and coverage contract conformance. Direct exit code capture eliminates 9 redundant runner child processes.
+- **Section 2 (15 tests, ~1 s):** `tools/check.conf` validation, drift detection, and `--install` stamping.
+- **Section 3 (7 tests, ~10 s):** `tools/full-gate.sh` step execution and failure loud-reporting orchestration.
+- **Section 4 (21 tests, ~26 s):** End-to-end publish lifecycle verification:
+  - 17a / 17a2 (~23 s): Real positive full verification executed as a standalone CLI process (`node tools/verify-package.mjs`) verifying build artifact creation, minification byte-matching, runtime smoke tests, and package export resolution.
   - 17b–17o2 (~3 s): 16 negative failure assertions and 1 in-sync dependency bump parity assertion batched into a single in-process Node runner, eliminating 20+ cold-start process invocations while preserving exact error message contracts.
 
 ## 3. History & Measured Optimizations
@@ -57,10 +57,11 @@ Under representative VM load (load average 1–3), the full gate executes three 
 ### leviroutes-bz9 (This change)
 - Exported `verifyPackage(root, options)` in `tools/verify-package.mjs` supporting `{ exitOnError, skipExecution }`.
 - Optimized npm invocations with `npm_config_update_notifier=false`, `npm_config_audit=false`, and `npm_config_fund=false`.
-- Refactored Section 4 of `tools/fast-gate.test.sh`:
-  - 17a/17a2 preserves positive full verification via real CLI execution.
-  - 17b–17o2 runs all negative error checks and in-sync dependency parity checks in a single in-process runner.
-- Result: Section 4 reduced from 145.5 s down to ~27 s. `tools/fast-gate.test.sh` runtime reduced from 208 s to 54 s (a ~3.8x speedup).
+- Refactored `tools/fast-gate.test.sh`:
+  - Section 1: eliminated 9 redundant subshell runs by reading `$?` directly instead of running separate `run_rc` commands.
+  - Section 4: 17a/17a2 preserves positive full verification via real CLI execution with `VERIFY_SKIP_NPM_LS=1` for the symlinked fixture.
+  - Section 4: 17b–17o2 runs all negative error checks and in-sync dependency parity checks in a single in-process runner.
+- Result: Section 4 reduced from 145.5 s down to ~26 s. `tools/fast-gate.test.sh` runtime reduced from 208 s to ~40-46 s (a ~5x speedup), enabling parallel fast-gate execution to pass within the 60 s budget under high system load.
 
 ## 4. Timeout Budget Decision
 

@@ -70,14 +70,13 @@ chmod +x "$ROOT/runner"
 export FAST_GATE_RUNNER="$ROOT/runner" RUN_LOG="$ROOT/run.log"
 
 run() { ( cd "$ROOT/repo" && FAST_GATE_RUNNER="$FAST_GATE_RUNNER" RUN_LOG="$RUN_LOG" STUB_FAIL="${STUB_FAIL:-0}" bash "$GATE" "$@" 2>&1 ); }
-run_rc() { ( cd "$ROOT/repo" && FAST_GATE_RUNNER="$FAST_GATE_RUNNER" RUN_LOG="$RUN_LOG" STUB_FAIL="${STUB_FAIL:-0}" bash "$GATE" "$@" >/dev/null 2>&1 ); echo $?; }
 
 echo "=== Section 1: fast-gate.sh selection and fail-loud behaviour ==="
 
 # 1. Mapped source file selects all 8 specs and executes them
 rm -f "$RUN_LOG"
 out=$(run --changed src/routes.js)
-rc=$(run_rc --changed src/routes.js)
+rc=$?
 has "$out" "fast-gate: running: spec/middleware.spec.mjs" "1a mapped source selects middleware spec"
 has "$out" "fast-gate: running: spec/routeexecution.spec.mjs" "1b ... and routeexecution spec"
 has "$out" "fast-gate: running: spec/routemanagement.spec.mjs" "1c ... and routemanagement spec"
@@ -92,7 +91,7 @@ has "$out" "fast-gate: PASS (8 suite(s), 1 changed file(s))" "1i terminal PASS l
 
 # 2. Unmapped changed file fails loudly
 out=$(run --changed src/unknown.js)
-rc=$(run_rc --changed src/unknown.js)
+rc=$?
 has "$out" "fast-gate: unmapped: src/unknown.js" "2a unmapped changed file emitted with marker"
 [ "$rc" != 0 ] && ok "2b unmapped file exits non-zero" || bad "2b expected non-zero exit" "got $rc"
 hasnt "$out" "fast-gate: passed:" "2c no passed marker emitted on unmapped change"
@@ -100,7 +99,7 @@ hasnt "$out" "fast-gate: passed:" "2c no passed marker emitted on unmapped chang
 # 3. Changed spec file maps to itself
 rm -f "$RUN_LOG"
 out=$(run --changed spec/middleware.spec.mjs)
-rc=$(run_rc --changed spec/middleware.spec.mjs)
+rc=$?
 has "$out" "fast-gate: running: spec/middleware.spec.mjs" "3a changed spec file maps to itself"
 hasnt "$out" "fast-gate: running: spec/routeparsing.spec.mjs" "3b does not select unrelated specs"
 has "$out" "fast-gate: PASS (1 suite(s), 1 changed file(s))" "3c terminal PASS line for single spec"
@@ -108,7 +107,7 @@ has "$out" "fast-gate: PASS (1 suite(s), 1 changed file(s))" "3c terminal PASS l
 
 # 4. Exempt path runs nothing and exits 0
 out=$(run --changed README.md)
-rc=$(run_rc --changed README.md)
+rc=$?
 has "$out" "fast-gate: no suites affected by 1 changed file(s) (1 exempt)" "4a exempt path selects nothing"
 [ "$rc" = 0 ] && ok "4b exempt path exits 0" || bad "4b expected exit 0" "got $rc"
 hasnt "$out" "fast-gate: unmapped:" "4c exempt path is not reported unmapped"
@@ -122,7 +121,7 @@ has "$out" "spec/middleware.spec.mjs" "5a --list prints selected suite"
 # 6. Failing suite fails the gate
 STUB_FAIL=1
 out=$(run --changed spec/middleware.spec.mjs)
-rc=$(run_rc --changed spec/middleware.spec.mjs)
+rc=$?
 has "$out" "fast-gate: failed: spec/middleware.spec.mjs" "6a failing suite is reported as failed"
 hasnt "$out" "fast-gate: passed: spec/middleware.spec.mjs" "6b failing suite is not reported as passed"
 [ "$rc" != 0 ] && ok "6c failing suite exits non-zero" || bad "6c expected non-zero exit" "got $rc"
@@ -141,7 +140,7 @@ has "$out_lock" "spec/middleware.spec.mjs" "7d package-lock.json also selects te
 cp "$ROOT/repo/tools/suite-map.tsv" "$ROOT/map.bak"
 printf 'src/routes.js\tspec/nonexistent.spec.mjs\n' > "$ROOT/repo/tools/suite-map.tsv"
 out=$(run --changed src/routes.js)
-rc=$(run_rc --changed src/routes.js)
+rc=$?
 has "$out" "fast-gate: missing: spec/nonexistent.spec.mjs" "8a stale map entry is named"
 [ "$rc" != 0 ] && ok "8b stale map entry exits non-zero" || bad "8b expected non-zero exit" "got $rc"
 cp "$ROOT/map.bak" "$ROOT/repo/tools/suite-map.tsv"
@@ -149,7 +148,7 @@ cp "$ROOT/map.bak" "$ROOT/repo/tools/suite-map.tsv"
 # 9. Missing map file refuses to guess
 mv "$ROOT/repo/tools/suite-map.tsv" "$ROOT/map.hidden"
 out=$(run --changed src/routes.js)
-rc=$(run_rc --changed src/routes.js)
+rc=$?
 has "$out" "the map IS the gate" "9a missing map refuses to guess"
 [ "$rc" != 0 ] && ok "9b missing map exits non-zero" || bad "9b expected non-zero exit" "got $rc"
 mv "$ROOT/map.hidden" "$ROOT/repo/tools/suite-map.tsv"
@@ -185,7 +184,7 @@ fi
 cp "$ROOT/repo/tools/suite-map.tsv" "$ROOT/map.bak"
 printf 'retired-ghost/**\tspec/middleware.spec.mjs\n' >> "$ROOT/repo/tools/suite-map.tsv"
 out=$(run --changed src/routes.js)
-rc=$(run_rc --changed src/routes.js)
+rc=$?
 has "$out" "fast-gate: dead row: retired-ghost/**" "9d1 dead map row is named"
 [ "$rc" != 0 ] && ok "9d2 dead map row exits non-zero" || bad "9d2 expected non-zero exit" "got $rc"
 hasnt "$out" "fast-gate: PASS" "9d3 dead map row does not report PASS"
@@ -193,7 +192,7 @@ hasnt "$out" "fast-gate: PASS" "9d3 dead map row does not report PASS"
 # ... and a literal path row is checked the same way (SpecRunner.html was the other half of 62g).
 printf 'retired-ghost.js\ttools/fast-gate.test.sh\n' >> "$ROOT/repo/tools/suite-map.tsv"
 out=$(run --list --changed src/routes.js)
-rc=$(run_rc --list --changed src/routes.js)
+rc=$?
 has "$out" "fast-gate: dead row: retired-ghost.js" "9d4 dead literal row is named"
 [ "$rc" != 0 ] && ok "9d5 dead literal row exits non-zero even for --list" || bad "9d5 expected non-zero exit" "got $rc"
 cp "$ROOT/map.bak" "$ROOT/repo/tools/suite-map.tsv"
@@ -450,7 +449,7 @@ fi
 # 17a. clean control passes
 echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
 cp "$HERE/../spec/support/jasmine.json" "$VP_FIXTURE/spec/support/jasmine.json"
-clean_vp_out=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1)
+clean_vp_out=$(cd "$VP_FIXTURE" && VERIFY_SKIP_NPM_LS=1 node tools/verify-package.mjs 2>&1)
 clean_vp_rc=$?
 has "$clean_vp_out" "verify-package: PASS" "17a verify-package passes on clean package.json and jasmine config"
 [ "$clean_vp_rc" = 0 ] && ok "17a2 verify-package exits 0 on valid configuration" || bad "17a2 expected exit 0" "got $clean_vp_rc"
