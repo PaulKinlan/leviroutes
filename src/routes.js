@@ -91,6 +91,32 @@ const routes = function(options) {
     return count;
   };
 
+  // Dot-escaping for raw route text: a dot that is already regex-escaped ('\.')
+  // is literal and must be left alone - escaping it again yields '\\.', a literal
+  // backslash followed by "any character", so '/a\.b' stops matching '/a.b'
+  // (leviroutes-np4). A lookbehind cannot decide this: in '\\.' the backslash
+  // before the dot is itself escaped, so that dot is NOT escaped and must still be
+  // made literal. A left-to-right scan tracking the escape state handles both.
+  var escapeUnescapedDots = function(text) {
+    var out = "";
+    var escaped = false;
+    for (var i = 0; i < text.length; i++) {
+      var c = text[i];
+      if (escaped) {
+        out += c;
+        escaped = false;
+        continue;
+      }
+      if (c === "\\") {
+        escaped = true;
+        out += c;
+        continue;
+      }
+      out += (c === ".") ? "\\." : c;
+    }
+    return out;
+  };
+
   this.parseRoute = function(path) {
     if (matcherKind === "urlpattern") return compileUrlPattern(path);
 
@@ -112,8 +138,10 @@ const routes = function(options) {
         // A literal dot in a route is path punctuation, not the regular-expression "any
         // character": without this, '/:category.:format' matches '/foo' with
         // {category: 'f', format: 'o'}, and '/a/b.json' with {category: 'b'}. Other
-        // regular-expression syntax in a route is deliberately left untouched.
-        newRegexp += chunk.replace(/\./g, "\\.");
+        // regular-expression syntax in a route is deliberately left untouched - which
+        // includes a dot the route author already escaped, so only unescaped dots are
+        // escaped here.
+        newRegexp += escapeUnescapedDots(chunk);
 
         var replacement = matches[2] ? matches[2] : "([^/.\\\\]+)";
         var captures = countCaptureGroups(replacement);
@@ -134,7 +162,7 @@ const routes = function(options) {
       // a bare "^" + route + "$" makes §/index.html|/§ compile to /^\/index\.html|\/$/,
       // which also matches '/x/' - a path neither alternative names (leviroutes-bym). The
       // group is non-capturing, so every recorded group index in 'groups' is unchanged.
-      newRegexp = "^(?:" + newRegexp + tail.replace(/\./g, "\\.") + ")$"; 
+      newRegexp = "^(?:" + newRegexp + escapeUnescapedDots(tail) + ")$"; 
 
       return { "groups" : groups, "regexp": new RegExp(newRegexp)};
     };

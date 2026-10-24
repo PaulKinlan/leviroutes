@@ -28,6 +28,21 @@ describe("route parsing", function() {
     expect(r.getRoutes()[0].regex.regexp).toEqual(/^(?:\/([^/.\\]+)\.([^/.\\]+))$/);
   });
 
+  it("should not double-escape an already-escaped dot in a route", function() {
+    // leviroutes-np4: escaping every dot turned '\.' into '\\.' (a literal
+    // backslash plus any character), so the route never matched its own text.
+    r.get("/a\\.b", function(){});
+    expect(r.getRoutes()[0].regex.regexp).toEqual(/^(?:\/a\.b)$/);
+  });
+
+  it("should still escape a dot that follows an escaped backslash", function() {
+    // Route text '\\.' is an escaped backslash followed by a BARE dot: the dot
+    // is not itself escaped, so it is still path punctuation and must become
+    // literal. A lookbehind-based escape would misread the preceding backslash.
+    r.get("/a\\\\.b", function(){});
+    expect(r.getRoutes()[0].regex.regexp).toEqual(/^(?:\/a\\\.b)$/);
+  });
+
   it("should calculate correct group index when preceded by regex capture groups", function() {
     r.get("/foo/([a-z]+)/:id", function(){});
     expect(r.getRoutes()[0].regex.groups["id"]).toEqual(1);

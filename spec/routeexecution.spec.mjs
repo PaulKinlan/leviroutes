@@ -83,6 +83,23 @@ describe("routing", function() {
     expect(matched).toEqual({ category: "foo", format: "json" });
   });
 
+  it("should match a route written with an escaped dot against a literal dot", function() {
+    // leviroutes-np4: '/a\\.b' must match '/a.b' exactly - not '/aXb' (the dot is
+    // not a wildcard) and not '/a\b' (the pre-fix double-escape '\\.' matched a
+    // literal backslash plus any character). '/a\b' never reaches the regex as
+    // written: the URL parser reads a backslash in a path as a slash - but the
+    // assertion that it does not match is the point of the spec.
+    var matched = 0;
+    r.get("/a\\.b", function() { matched++; });
+
+    r.test("/aXb");
+    r.test("/a\\b");
+    expect(matched).toEqual(0);
+
+    r.test("/a.b");
+    expect(matched).toEqual(1);
+  });
+
   it("should only fire the root route for the root path", function() {
     var fired = 0;
     r.get("/", function() {
