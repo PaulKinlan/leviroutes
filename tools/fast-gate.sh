@@ -74,16 +74,19 @@ is_exempt() {
 }
 
 suites_for() {
-  local f="$1" pat rest
-  # Changed spec files map to themselves directly
-  case $f in spec/*.spec.mjs|spec/*.spec.js) echo "$f"; return ;; esac
-
+  local f="$1" pat rest rows=""
   while IFS=$'\t' read -r pat rest; do
     case $pat in ''|\#*|\!*) continue ;; esac
     if [[ $f == $pat ]]; then
-      printf '%s\n' $rest
+      rows+="${rest}"$'\n'
     fi
   done < "$MAP"
+  # The map is consulted BEFORE the built-in self-map: an explicit row for a spec file is
+  # live config and must win. Returning the self-map first silently shadowed every spec row
+  # in the map (leviroutes-jo7), turning edits to those rows into dead config.
+  if [ -n "$rows" ]; then printf '%s\n' $rows; return; fi
+  # Fallback: a changed spec file the map does not name maps to itself
+  case $f in spec/*.spec.mjs|spec/*.spec.js) echo "$f" ;; esac
 }
 
 if [ "$RUN_ALL" -eq 1 ]; then
