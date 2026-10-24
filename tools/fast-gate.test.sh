@@ -19,6 +19,10 @@ ROOT=$(mktemp -d); trap 'rm -rf "$ROOT"' EXIT
 # and that branch is unreachable in a bare directory (leviroutes-81z). Global/system git
 # config is pinned so no assertion here depends on the machinery of the host.
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+# Hermetic cache root for the gate's V8 compile cache: nothing under $HOME is touched, and
+# each test run starts cold (leviroutes-43f).
+export XDG_CACHE_HOME="$ROOT/cache"
+mkdir -p "$XDG_CACHE_HOME"
 mkdir -p "$ROOT/repo"
 git -C "$ROOT/repo" init -q
 cp -r "$HERE" "$ROOT/repo/tools"
@@ -72,6 +76,22 @@ export FAST_GATE_RUNNER="$ROOT/runner" RUN_LOG="$ROOT/run.log"
 
 run() { ( cd "$ROOT/repo" && FAST_GATE_RUNNER="$FAST_GATE_RUNNER" RUN_LOG="$RUN_LOG" STUB_FAIL="${STUB_FAIL:-0}" bash "$GATE" "$@" 2>&1 ); }
 
+# run_fast_gate_jobs <jobs> [XDG_CACHE_HOME_IS_FILE] [gate args...] — run() with an explicit
+# FAST_GATE_JOBS, optionally with XDG_CACHE_HOME pointed at a regular file so the compile-cache
+# mkdir fails (1l).
+: > "$ROOT/cache-file"
+run_fast_gate_jobs() {
+  local jobs="$1"; shift
+  local cache_env=()
+  if [ "${1:-}" = "XDG_CACHE_HOME_IS_FILE" ]; then
+    shift
+    cache_env+=("XDG_CACHE_HOME=$ROOT/cache-file")
+  fi
+  ( cd "$ROOT/repo" && env FAST_GATE_JOBS="$jobs" ${cache_env[@]+"${cache_env[@]}"} \
+      FAST_GATE_RUNNER="$FAST_GATE_RUNNER" RUN_LOG="$RUN_LOG" STUB_FAIL="${STUB_FAIL:-0}" \
+      bash "$GATE" "$@" 2>&1 )
+}
+
 echo "=== Section 1: fast-gate.sh selection and fail-loud behaviour ==="
 
 # 1. Mapped source file selects all 8 specs and executes them
@@ -89,6 +109,22 @@ has "$out" "fast-gate: running: spec/serverdispatch.spec.mjs" "1g2 ... and the s
 has "$out" "fast-gate: passed: spec/middleware.spec.mjs" "1h passing suite is reported with positive marker"
 has "$out" "fast-gate: PASS (8 suite(s), 1 changed file(s))" "1i terminal PASS line matches producer contract"
 [ "$rc" = 0 ] && ok "1j exit 0 on success" || bad "1j expected exit 0" "got $rc"
+
+# 1k. FAST_GATE_JOBS=1 serialises the selection and still runs every suite to PASS:
+# concurrency is a scheduling detail, never a coverage one (leviroutes-43f).
+rm -f "$RUN_LOG"
+out=$(run_fast_gate_jobs 1 --changed src/routes.js)
+rc=$?
+has "$out" "fast-gate: PASS (8 suite(s), 1 changed file(s))" "1k FAST_GATE_JOBS=1 still passes all 8 suites"
+[ "$rc" = 0 ] && ok "1k2 FAST_GATE_JOBS=1 exits 0" || bad "1k2 expected exit 0" "got $rc"
+
+# 1l. An unwritable compile-cache location fails open: the gate unsets NODE_COMPILE_CACHE
+# and runs anyway (leviroutes-43f). XDG_CACHE_HOME here is a regular FILE, so mkdir -p of
+# the cache dir under it must fail.
+out=$(run_fast_gate_jobs 1 XDG_CACHE_HOME_IS_FILE --changed spec/middleware.spec.mjs)
+rc=$?
+has "$out" "fast-gate: PASS (1 suite(s), 1 changed file(s))" "1l unwritable compile-cache location fails open"
+[ "$rc" = 0 ] && ok "1l2 fail-open exits 0" || bad "1l2 expected exit 0" "got $rc"
 
 # 2. Unmapped changed file fails loudly
 out=$(run --changed src/unknown.js)
