@@ -121,8 +121,9 @@ Differences from the default matcher:
 | optional segment | not expressible | `/files{/:id}?` |
 
 The API is available natively in current browsers and in Node 24+; elsewhere load
-[`urlpattern-polyfill`](https://github.com/kenchris/urlpattern-polyfill) before constructing the
-router, or `routes({ matcher: "urlpattern" })` throws a message saying so. Matching is still on the
+[`urlpattern-polyfill`](https://github.com/kenchris/urlpattern-polyfill) before registering routes.
+The constructor does not check for the API: the first `get()`/`post()` is what throws a message
+saying so. Matching is still on the
 pathname, and only named groups become `req.params`. See
 [`docs/urlpattern-investigation.md`](docs/urlpattern-investigation.md) for the measurements behind
 this and the migration plan.
