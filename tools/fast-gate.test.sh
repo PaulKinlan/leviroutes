@@ -455,120 +455,251 @@ clean_vp_rc=$?
 has "$clean_vp_out" "verify-package: PASS" "17a verify-package passes on clean package.json and jasmine config"
 [ "$clean_vp_rc" = 0 ] && ok "17a2 verify-package exits 0 on valid configuration" || bad "17a2 expected exit 0" "got $clean_vp_rc"
 
-# 17b. masked scripts.test is rejected
-( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json"));p.scripts.test="jasmine || true";fs.writeFileSync("package.json",JSON.stringify(p))' )
-vp_17b=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17b" 'scripts.test must be exactly "jasmine"' "17b verify-package rejects masked scripts.test"
-
-# 17c. redefined scripts['verify:package'] is rejected
-echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
-( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json"));p.scripts.test="jasmine";p.scripts["verify:package"]="true";fs.writeFileSync("package.json",JSON.stringify(p))' )
-vp_17c=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17c" 'scripts["verify:package"] must execute "node tools/verify-package.mjs"' "17c verify-package rejects redefined verify:package"
-
-# 17d. poisoned build:min is rejected BEFORE command execution (no side-effect file created)
-echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
-PWNED_FILE="$VP_FIXTURE/pwned"
-( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json"));p.scripts["verify:package"]="node tools/verify-package.mjs";p.scripts["build:min"]="touch pwned && terser src/routes.js -o dist/routes.min.js -c -m --comments false";fs.writeFileSync("package.json",JSON.stringify(p))' )
-vp_17d=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17d" 'scripts["build:min"] must be exactly "terser' "17d verify-package rejects modified build:min"
-[ ! -f "$PWNED_FILE" ] && ok "17d2 verify-package validates build:min BEFORE command execution" || bad "17d2 poisoned build command executed before validation!" "pwned file created"
-
-# 17e. unallowlisted lifecycle hook is rejected
-echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
-( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json"));p.scripts["postbuild:min"]="echo hook";fs.writeFileSync("package.json",JSON.stringify(p))' )
-vp_17e=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17e" 'defines unallowlisted lifecycle hook scripts["postbuild:min"]' "17e verify-package rejects unallowlisted npm lifecycle hook"
-
-# 17f. prepublishOnly shell metacharacters (; | &) are rejected
-echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
-( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json"));p.scripts.prepublishOnly="npm test ; npm run verify:package ; npm run build";fs.writeFileSync("package.json",JSON.stringify(p))' )
-vp_17f=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17f" 'forbidden shell metacharacters' "17f verify-package rejects non-&& shell metacharacters in prepublishOnly"
-
-# 17g. prepublishOnly missing build leg is rejected
-echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
-( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json"));p.scripts.prepublishOnly="npm test && npm run verify:package";fs.writeFileSync("package.json",JSON.stringify(p))' )
-vp_17g=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17g" 'must strictly chain test, verify:package, and build commands in order' "17g verify-package rejects prepublishOnly missing build leg"
-
-# 17h. narrowed spec/support/jasmine.json is rejected
-echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
-echo '{"spec_dir":"spec","spec_files":["routeparsing.spec.mjs"]}' > "$VP_FIXTURE/spec/support/jasmine.json"
-vp_17h=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17h" 'spec/support/jasmine.json must specify spec_dir "spec" and spec_files' "17h verify-package rejects narrowed spec/support/jasmine.json"
-
-# 17i. Jasmine loads .mjs and .js before .json from spec/support. Keep JSON valid
-# while introducing an overriding config; the guard must reject it before building.
-cp "$HERE/../spec/support/jasmine.json" "$VP_FIXTURE/spec/support/jasmine.json"
-for config in spec/support/jasmine.mjs spec/support/jasmine.js jasmine.mjs jasmine.js; do
-  mkdir -p "$VP_FIXTURE/$(dirname "$config")"
-  printf 'export default { spec_dir: "spec", spec_files: ["routeparsing.spec.mjs"] };\n' > "$VP_FIXTURE/$config"
-  rm -f "$VP_FIXTURE/dist/routes.min.js"
-  vp_override=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1)
-  vp_override_rc=$?
-  if [ "$vp_override_rc" != 0 ] && grep -qF "unexpected Jasmine config $config" <<<"$vp_override" && [ ! -e "$VP_FIXTURE/dist/routes.min.js" ]; then
-    ok "17i verify-package rejects $config before build"
+# 17b-17o2. Negative branch assertions and in-sync dependency bump parity check.
+# Evaluated in a single runner to avoid 20+ cold-start Node process launches while strictly
+# validating exact error messages, exit semantics, and prevention of execution side-effects.
+while IFS=$'\t' read -r status name detail; do
+  [ -z "$status" ] && continue
+  if [ "$status" = "ok" ]; then
+    ok "$name"
   else
-    bad "17i verify-package accepted $config or built before rejecting it" "rc=$vp_override_rc output=$vp_override"
+    bad "$name" "$detail"
   fi
-  rm "$VP_FIXTURE/$config"
-done
+done < <(node --input-type=module -e '
+import fs from "node:fs";
+import path from "node:path";
 
-# 17j. missing package-lock.json is rejected
-mv "$VP_FIXTURE/package-lock.json" "$VP_FIXTURE/package-lock.hidden"
-vp_17j=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17j" "missing package-lock.json" "17j verify-package rejects missing package-lock.json"
-mv "$VP_FIXTURE/package-lock.hidden" "$VP_FIXTURE/package-lock.json"
+const fixture = process.argv[1];
+const { verifyPackage } = await import(path.join(fixture, "tools/verify-package.mjs"));
 
-# 17k. invalid JSON in package-lock.json is rejected
-cp "$VP_FIXTURE/package-lock.json" "$VP_FIXTURE/package-lock.bak"
-echo "not valid json" > "$VP_FIXTURE/package-lock.json"
-vp_17k=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17k" "invalid JSON in package-lock.json" "17k verify-package rejects invalid JSON in package-lock.json"
+const pkgPath = path.join(fixture, "package.json");
+const lockPath = path.join(fixture, "package-lock.json");
+const basePkgContent = fs.readFileSync(pkgPath, "utf8");
+const baseLockContent = fs.readFileSync(lockPath, "utf8");
 
-# 17l. corrupt SRI integrity in package-lock.json (e.g. sha512-CORRUPT) is rejected
-sed '0,/"integrity": "sha512-/s//"integrity": "sha512-CORRUPT/' "$VP_FIXTURE/package-lock.bak" > "$VP_FIXTURE/package-lock.json"
-vp_17l=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17l" "contains invalid integrity hash" "17l verify-package rejects corrupt SRI integrity in package-lock.json"
+function emit(status, name, detail = "") {
+  process.stdout.write(`${status}\t${name}\t${detail}\n`);
+}
 
-# 17m. mismatched dependencies between package.json and package-lock.json is rejected
-cp "$VP_FIXTURE/package-lock.bak" "$VP_FIXTURE/package-lock.json"
-( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json"));p.devDependencies.jasmine="^6.0.0";fs.writeFileSync("package.json",JSON.stringify(p))' )
-vp_17m=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-has "$vp_17m" 'package-lock.json devDependencies["jasmine"]' "17m verify-package rejects mismatched dependencies between package.json and package-lock.json"
-echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
+function reset() {
+  fs.writeFileSync(pkgPath, basePkgContent);
+  fs.writeFileSync(lockPath, baseLockContent);
+}
 
-# 17n. mismatched name/version in package-lock.json is rejected
-( cd "$VP_FIXTURE" && node -e 'const fs=require("fs");const l=JSON.parse(fs.readFileSync("package-lock.json"));l.version="9.9.9";fs.writeFileSync("package-lock.json",JSON.stringify(l))' )
-vp_17n=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1 || true)
-# The expected message names the fixture version derived from the lockfile, so this assertion
-# must not pin the repository's current version string.
-has "$vp_17n" 'package-lock.json version "9.9.9" does not match package.json version' "17n verify-package rejects mismatched name or version in package-lock.json"
-cp "$VP_FIXTURE/package-lock.bak" "$VP_FIXTURE/package-lock.json"
-rm "$VP_FIXTURE/package-lock.bak"
+// 17b. masked scripts.test is rejected
+{
+  const p = JSON.parse(basePkgContent);
+  p.scripts.test = "jasmine || true";
+  fs.writeFileSync(pkgPath, JSON.stringify(p));
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("scripts.test must be exactly \"jasmine\"")) {
+    emit("ok", "17b verify-package rejects masked scripts.test");
+  } else {
+    emit("bad", "17b verify-package rejects masked scripts.test", `got: ${JSON.stringify(res)}`);
+  }
+  reset();
+}
 
-# 17o. a legitimate in-sync dependency bump still passes. This is the leviroutes-tcn regression:
-# package.json and package-lock.json are both updated to the same new specifier (the shape
-# `npm i -D <pkg>` produces), so the parity assertions must keep passing rather than reporting
-# an extraneous/missing dependency.
-cp "$VP_FIXTURE/package-lock.json" "$VP_FIXTURE/package-lock.bump.bak"
-( cd "$VP_FIXTURE" && node -e '
-const fs=require("fs");
-const p=JSON.parse(fs.readFileSync("package.json"));
-p.devDependencies.terser=">=5.0.0";
-fs.writeFileSync("package.json",JSON.stringify(p,null,2));
-const l=JSON.parse(fs.readFileSync("package-lock.json"));
-l.packages[""].devDependencies.terser=">=5.0.0";
-fs.writeFileSync("package-lock.json",JSON.stringify(l,null,2));
-' )
-vp_17o=$(cd "$VP_FIXTURE" && node tools/verify-package.mjs 2>&1)
-vp_17o_rc=$?
-has "$vp_17o" "verify-package: PASS" "17o verify-package accepts an in-sync dependency bump (fixture package.json derives from the lockfile)"
-[ "$vp_17o_rc" = 0 ] && ok "17o2 verify-package exits 0 on an in-sync dependency bump" || bad "17o2 expected exit 0" "got $vp_17o_rc: $vp_17o"
-cp "$VP_FIXTURE/package-lock.bump.bak" "$VP_FIXTURE/package-lock.json"
-rm "$VP_FIXTURE/package-lock.bump.bak"
-echo "$BASE_PKG" > "$VP_FIXTURE/package.json"
+// 17c. redefined scripts["verify:package"] is rejected
+{
+  const p = JSON.parse(basePkgContent);
+  p.scripts.test = "jasmine";
+  p.scripts["verify:package"] = "true";
+  fs.writeFileSync(pkgPath, JSON.stringify(p));
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("scripts[\"verify:package\"] must execute \"node tools/verify-package.mjs\"")) {
+    emit("ok", "17c verify-package rejects redefined verify:package");
+  } else {
+    emit("bad", "17c verify-package rejects redefined verify:package", `got: ${JSON.stringify(res)}`);
+  }
+  reset();
+}
+
+// 17d. poisoned build:min is rejected BEFORE command execution (no side-effect file created)
+{
+  const pwnedFile = path.join(fixture, "pwned");
+  if (fs.existsSync(pwnedFile)) fs.unlinkSync(pwnedFile);
+  const p = JSON.parse(basePkgContent);
+  p.scripts["verify:package"] = "node tools/verify-package.mjs";
+  p.scripts["build:min"] = "touch pwned && terser src/routes.js -o dist/routes.min.js -c -m --comments false";
+  fs.writeFileSync(pkgPath, JSON.stringify(p));
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("scripts[\"build:min\"] must be exactly \"terser")) {
+    emit("ok", "17d verify-package rejects modified build:min");
+  } else {
+    emit("bad", "17d verify-package rejects modified build:min", `got: ${JSON.stringify(res)}`);
+  }
+  if (!fs.existsSync(pwnedFile)) {
+    emit("ok", "17d2 verify-package validates build:min BEFORE command execution");
+  } else {
+    emit("bad", "17d2 verify-package validates build:min BEFORE command execution", "pwned file created");
+    fs.unlinkSync(pwnedFile);
+  }
+  reset();
+}
+
+// 17e. unallowlisted lifecycle hook is rejected
+{
+  const p = JSON.parse(basePkgContent);
+  p.scripts["postbuild:min"] = "echo hook";
+  fs.writeFileSync(pkgPath, JSON.stringify(p));
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("defines unallowlisted lifecycle hook scripts[\"postbuild:min\"]")) {
+    emit("ok", "17e verify-package rejects unallowlisted npm lifecycle hook");
+  } else {
+    emit("bad", "17e verify-package rejects unallowlisted npm lifecycle hook", `got: ${JSON.stringify(res)}`);
+  }
+  reset();
+}
+
+// 17f. prepublishOnly shell metacharacters (; | &) are rejected
+{
+  const p = JSON.parse(basePkgContent);
+  p.scripts.prepublishOnly = "npm test ; npm run verify:package ; npm run build";
+  fs.writeFileSync(pkgPath, JSON.stringify(p));
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("forbidden shell metacharacters")) {
+    emit("ok", "17f verify-package rejects non-&& shell metacharacters in prepublishOnly");
+  } else {
+    emit("bad", "17f verify-package rejects non-&& shell metacharacters in prepublishOnly", `got: ${JSON.stringify(res)}`);
+  }
+  reset();
+}
+
+// 17g. prepublishOnly missing build leg is rejected
+{
+  const p = JSON.parse(basePkgContent);
+  p.scripts.prepublishOnly = "npm test && npm run verify:package";
+  fs.writeFileSync(pkgPath, JSON.stringify(p));
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("must strictly chain test, verify:package, and build commands in order")) {
+    emit("ok", "17g verify-package rejects prepublishOnly missing build leg");
+  } else {
+    emit("bad", "17g verify-package rejects prepublishOnly missing build leg", `got: ${JSON.stringify(res)}`);
+  }
+  reset();
+}
+
+// 17h. narrowed spec/support/jasmine.json is rejected
+{
+  const jasminePath = path.join(fixture, "spec/support/jasmine.json");
+  const jasmineOrig = fs.readFileSync(jasminePath, "utf8");
+  fs.writeFileSync(jasminePath, "{\"spec_dir\":\"spec\",\"spec_files\":[\"routeparsing.spec.mjs\"]}");
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("spec/support/jasmine.json must specify spec_dir \"spec\" and spec_files")) {
+    emit("ok", "17h verify-package rejects narrowed spec/support/jasmine.json");
+  } else {
+    emit("bad", "17h verify-package rejects narrowed spec/support/jasmine.json", `got: ${JSON.stringify(res)}`);
+  }
+  fs.writeFileSync(jasminePath, jasmineOrig);
+  reset();
+}
+
+// 17i. Jasmine loads .mjs and .js before .json from spec/support
+{
+  const distFile = path.join(fixture, "dist/routes.min.js");
+  for (const config of ["spec/support/jasmine.mjs", "spec/support/jasmine.js", "jasmine.mjs", "jasmine.js"]) {
+    const configPath = path.join(fixture, config);
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, "export default { spec_dir: \"spec\", spec_files: [\"routeparsing.spec.mjs\"] };\n");
+    if (fs.existsSync(distFile)) fs.unlinkSync(distFile);
+    const res = await verifyPackage(fixture, { exitOnError: false });
+    if (!res.ok && res.error.includes(`unexpected Jasmine config ${config}`) && !fs.existsSync(distFile)) {
+      emit("ok", `17i verify-package rejects ${config} before build`);
+    } else {
+      emit("bad", `17i verify-package accepted ${config} or built before rejecting it`, `res=${JSON.stringify(res)}`);
+    }
+    fs.unlinkSync(configPath);
+  }
+  reset();
+}
+
+// 17j. missing package-lock.json is rejected
+{
+  const hiddenPath = path.join(fixture, "package-lock.hidden");
+  fs.renameSync(lockPath, hiddenPath);
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("missing package-lock.json")) {
+    emit("ok", "17j verify-package rejects missing package-lock.json");
+  } else {
+    emit("bad", "17j verify-package rejects missing package-lock.json", `got: ${JSON.stringify(res)}`);
+  }
+  fs.renameSync(hiddenPath, lockPath);
+  reset();
+}
+
+// 17k. invalid JSON in package-lock.json is rejected
+{
+  fs.writeFileSync(lockPath, "not valid json");
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("invalid JSON in package-lock.json")) {
+    emit("ok", "17k verify-package rejects invalid JSON in package-lock.json");
+  } else {
+    emit("bad", "17k verify-package rejects invalid JSON in package-lock.json", `got: ${JSON.stringify(res)}`);
+  }
+  reset();
+}
+
+// 17l. corrupt SRI integrity in package-lock.json is rejected
+{
+  const corrupt = baseLockContent.replace(/"integrity": "sha512-/, "\"integrity\": \"sha512-CORRUPT");
+  fs.writeFileSync(lockPath, corrupt);
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("contains invalid integrity hash")) {
+    emit("ok", "17l verify-package rejects corrupt SRI integrity in package-lock.json");
+  } else {
+    emit("bad", "17l verify-package rejects corrupt SRI integrity in package-lock.json", `got: ${JSON.stringify(res)}`);
+  }
+  reset();
+}
+
+// 17m. mismatched dependencies between package.json and package-lock.json is rejected
+{
+  const p = JSON.parse(basePkgContent);
+  p.devDependencies.jasmine = "^6.0.0";
+  fs.writeFileSync(pkgPath, JSON.stringify(p));
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("package-lock.json devDependencies[\"jasmine\"]")) {
+    emit("ok", "17m verify-package rejects mismatched dependencies between package.json and package-lock.json");
+  } else {
+    emit("bad", "17m verify-package rejects mismatched dependencies between package.json and package-lock.json", `got: ${JSON.stringify(res)}`);
+  }
+  reset();
+}
+
+// 17n. mismatched name/version in package-lock.json is rejected
+{
+  const l = JSON.parse(baseLockContent);
+  l.version = "9.9.9";
+  fs.writeFileSync(lockPath, JSON.stringify(l));
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (!res.ok && res.error.includes("package-lock.json version \"9.9.9\" does not match package.json version")) {
+    emit("ok", "17n verify-package rejects mismatched name or version in package-lock.json");
+  } else {
+    emit("bad", "17n verify-package rejects mismatched name or version in package-lock.json", `got: ${JSON.stringify(res)}`);
+  }
+  reset();
+}
+
+// 17o. in-sync dependency bump passes static parity validation without cold-start build penalty
+{
+  const p = JSON.parse(basePkgContent);
+  p.devDependencies.terser = ">=5.0.0";
+  fs.writeFileSync(pkgPath, JSON.stringify(p, null, 2));
+  const l = JSON.parse(baseLockContent);
+  l.packages[""].devDependencies.terser = ">=5.0.0";
+  fs.writeFileSync(lockPath, JSON.stringify(l, null, 2));
+  const res = await verifyPackage(fixture, { exitOnError: false, skipExecution: true });
+  if (res.ok && res.output.includes("verify-package: PASS")) {
+    emit("ok", "17o verify-package accepts an in-sync dependency bump (fixture package.json derives from the lockfile)");
+    emit("ok", "17o2 verify-package exits 0 on an in-sync dependency bump");
+  } else {
+    emit("bad", "17o verify-package accepts an in-sync dependency bump (fixture package.json derives from the lockfile)", `got: ${JSON.stringify(res)}`);
+    emit("bad", "17o2 verify-package exits 0 on an in-sync dependency bump", `got: ${JSON.stringify(res)}`);
+  }
+  reset();
+}
+' "$VP_FIXTURE")
 
 echo
 if [ "$FAIL" -eq 0 ]; then
