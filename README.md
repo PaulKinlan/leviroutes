@@ -184,9 +184,10 @@ app.use(function(req, next) {
 ```
 
 After `next.abort()`, a later `next()` cannot invoke the route handler. If the
-route handler has executed, or if middleware has already sent headers (even with
-an unfinished body), `dispatch()` returns `true`: a fallback would corrupt the response,
-so middleware must finish it. The `next.abort()` method also stops the chain on browser routes, without
+route handler has executed, the route owns the request and may complete asynchronously.
+Similarly, if middleware has already sent headers (even with an unfinished body),
+`dispatch()` returns `true`: a fallback would corrupt the response, so middleware
+must finish it. The `next.abort()` method also stops the chain on browser routes, without
 changing browser navigation behavior. For asynchronous rejection, middleware
 must send its own response; aborting after `dispatch()` returns cannot signal
 the caller to send a fallback.

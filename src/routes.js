@@ -304,7 +304,10 @@ const routes = function(options) {
   // (get/post), unlike the browser paths which stay method-agnostic for
   // backwards compatibility. Returns true when a route matches, unless server
   // middleware explicitly calls next.abort() before returning without
-  // committing the response; the caller can then send its own fallback.
+  // committing the response; the caller can then send its own fallback. If the
+  // route handler has already executed, dispatch() returns true even if
+  // middleware calls next.abort() afterwards; a late abort cannot un-handle a
+  // request whose callback ran.
   this.dispatch = function(request, response) {
     var url;
     var method;
