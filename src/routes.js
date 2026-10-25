@@ -256,6 +256,7 @@ const routes = function(options) {
       // Execute middleware chain
       var middlewareIndex = 0;
       var aborted = false;
+      var handled = false;
       var next = function() {
         if (aborted) return;
         if (middlewareIndex < _middleware.length) {
@@ -263,6 +264,7 @@ const routes = function(options) {
           middleware(req, next);
         } else {
           // All middleware executed, call the route callback
+          handled = true;
           route.callback(req);
         }
       };
@@ -275,7 +277,7 @@ const routes = function(options) {
       // Start middleware execution
       next();
 
-      return !server || !aborted || !!(server.response &&
+      return !server || handled || !aborted || !!(server.response &&
         (server.response.headersSent || server.response.writableEnded || server.response.finished));
     }
 
