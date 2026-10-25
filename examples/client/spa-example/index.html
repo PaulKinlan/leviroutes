@@ -234,6 +234,17 @@
     const app = new routes();
     const appContainer = document.getElementById('app');
     
+    // Routes match the whole pathname (anchored ^...$), so register them under
+    // this page's directory. Serve from the repo root (see examples/README.md).
+    var base = location.pathname.replace(/[^/]*$/, '');
+
+    function toAppUrl(url) {
+      if (!url) return base;
+      if (url.startsWith(base)) return url;
+      if (url.startsWith('/')) return base + url.slice(1);
+      return base + url;
+    }
+
     // Sample data
     const users = [
       { id: 1, name: 'Alice Johnson', email: 'alice@example.com', role: 'Developer' },
@@ -256,7 +267,9 @@
     function updateNav(path) {
       document.querySelectorAll('nav a').forEach(link => {
         link.classList.remove('active');
-        if (link.getAttribute('href') === path) {
+        const href = link.getAttribute('href');
+        const target = toAppUrl(href);
+        if (path === target || (target !== base && path.startsWith(target))) {
           link.classList.add('active');
         }
       });
@@ -275,7 +288,7 @@
     });
     
     // Route: Home page
-    app.get("/", function(req) {
+    app.get(base + "(?:index\\.html)?", function(req) {
       render(`
         <div class="card">
           <h2>Welcome to LeviRoutes SPA Example</h2>
@@ -300,7 +313,7 @@
     });
     
     // Route: About page
-    app.get("/about", function(req) {
+    app.get(base + "about", function(req) {
       render(`
         <div class="card">
           <h2>About This Application</h2>
@@ -328,7 +341,7 @@
     });
     
     // Route: Blog listing
-    app.get("/blog", function(req) {
+    app.get(base + "blog", function(req) {
       const postsHtml = blogPosts.map(post => `
         <div class="blog-post">
           <h3><a href="/blog/${post.id}" style="color: #2c3e50; text-decoration: none;">${post.title}</a></h3>
@@ -348,7 +361,7 @@
     });
     
     // Route: Single blog post
-    app.get("/blog/:postId", function(req) {
+    app.get(base + "blog/:postId", function(req) {
       const postId = parseInt(req.params.postId);
       const post = blogPosts.find(p => p.id === postId);
       
@@ -380,7 +393,7 @@
     });
     
     // Route: Users listing
-    app.get("/users", function(req) {
+    app.get(base + "users", function(req) {
       const usersHtml = users.map(user => `
         <div class="user-card">
           <div class="user-avatar">${user.name.charAt(0)}</div>
@@ -402,7 +415,7 @@
     });
     
     // Route: Single user profile
-    app.get("/user/:userId", function(req) {
+    app.get(base + "user/:userId", function(req) {
       const userId = parseInt(req.params.userId);
       const user = users.find(u => u.id === userId);
       
@@ -441,13 +454,13 @@
     });
     
     // Route: Contact page
-    app.get("/contact", function(req) {
+    app.get(base + "contact", function(req) {
       render(`
         <div class="card">
           <h2>Contact Us</h2>
           <p>Have a question? Send us a message!</p>
           
-          <form action="/contact" method="post" style="margin-top: 20px;">
+          <form action="${base}contact" method="post" style="margin-top: 20px;">
             <label>Name</label>
             <input type="text" name="name" placeholder="Your name" required>
             
@@ -464,7 +477,7 @@
     });
     
     // Route: Contact form submission (POST)
-    app.post("/contact", function(req) {
+    app.post(base + "contact", function(req) {
       const name = req.values.name;
       const email = req.values.email;
       const message = req.values.message;
@@ -487,18 +500,26 @@
     document.querySelectorAll('nav a').forEach(link => {
       link.addEventListener('click', function(e) {
         e.preventDefault();
-        const url = this.getAttribute('href');
+        const url = toAppUrl(this.getAttribute('href'));
         history.pushState(null, '', url);
       });
     });
     
     // Handle dynamic links in rendered content
     appContainer.addEventListener('click', function(e) {
-      if (e.target.tagName === 'A' && e.target.getAttribute('href').startsWith('/')) {
-        e.preventDefault();
-        const url = e.target.getAttribute('href');
-        history.pushState(null, '', url);
+      const anchor = e.target.closest('a');
+      if (anchor) {
+        const href = anchor.getAttribute('href');
+        if (href && (href.startsWith('/') || href.startsWith(base))) {
+          e.preventDefault();
+          history.pushState(null, '', toAppUrl(href));
+        }
       }
+    });
+
+    // LeviRoutes dispatches 'statechanged' on pushState
+    window.addEventListener('statechanged', function() {
+      app.test(location.pathname);
     });
     
     // Run the initial route
