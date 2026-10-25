@@ -460,7 +460,7 @@
           <h2>Contact Us</h2>
           <p>Have a question? Send us a message!</p>
           
-          <form action="${base}contact" method="post" style="margin-top: 20px;">
+          <form action="${base}contact-submit" method="post" style="margin-top: 20px;">
             <label>Name</label>
             <input type="text" name="name" placeholder="Your name" required>
             
@@ -477,7 +477,10 @@
     });
     
     // Route: Contact form submission (POST)
-    app.post(base + "contact", function(req) {
+    // In client routing, LeviRoutes matches routes method-agnostically (first match wins).
+    // The form posts to a distinct action URL (${base}contact-submit) so the earlier GET route
+    // for the contact page does not shadow this form submission handler.
+    app.post(base + "contact-submit", function(req) {
       const name = req.values.name;
       const email = req.values.email;
       const message = req.values.message;
