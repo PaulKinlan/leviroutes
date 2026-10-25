@@ -164,13 +164,14 @@ Middleware functions are executed in the order they are registered, before any r
 
 The same route table works on the server. `dispatch()` routes a Node
 `http.IncomingMessage`, a Web Fetch [`Request`](https://developer.mozilla.org/en-US/docs/Web/API/Request),
-or a plain URL string, honouring the method each route was registered with. It returns
-`true` when a route matches, including when middleware will call `next()` later.
+or a plain URL string, honouring the method each route was registered with. It returns `true` when a route matches, including when middleware will call `next()` later.
 It returns `false` when no route matches, or when server middleware explicitly
 calls `next.abort()` before `dispatch()` returns without committing response
-headers, so your server can send its own fallback response. A middleware that simply omits
-`next()` still owns the request; `dispatch()` cannot distinguish that from an
-asynchronous continuation while returning a synchronous boolean.
+headers, so your server can send its own fallback response. If the route handler
+has already executed, `dispatch()` returns `true` even if middleware calls
+`next.abort()` afterwards; a late abort cannot un-handle a request whose callback ran.
+A middleware that simply omits `next()` still owns the request; `dispatch()` cannot
+distinguish that from an asynchronous continuation while returning a synchronous boolean.
 
 ```javascript
 app.use(function(req, next) {
@@ -182,10 +183,11 @@ app.use(function(req, next) {
 });
 ```
 
-After `next.abort()`, a later `next()` cannot invoke the route handler. If
-middleware has already sent headers (even with an unfinished body), `dispatch()`
-returns `true`: a fallback would corrupt the response, so middleware must finish
-it. The `next.abort()` method also stops the chain on browser routes, without
+After `next.abort()`, a later `next()` cannot invoke the route handler. If the
+route handler has executed, the route owns the request and may complete asynchronously.
+Similarly, if middleware has already sent headers (even with an unfinished body),
+`dispatch()` returns `true`: a fallback would corrupt the response, so middleware
+must finish it. The `next.abort()` method also stops the chain on browser routes, without
 changing browser navigation behavior. For asynchronous rejection, middleware
 must send its own response; aborting after `dispatch()` returns cannot signal
 the caller to send a fallback.

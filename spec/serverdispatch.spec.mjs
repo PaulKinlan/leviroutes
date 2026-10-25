@@ -154,6 +154,45 @@ describe("server dispatch", function() {
     expect(fired).toEqual(false);
   });
 
+  it("should retain handled status when middleware aborts after calling next", function() {
+    var fired = false;
+    r.use(function(req, next) { next(); next.abort(); });
+    r.get("/guarded", function() { fired = true; });
+
+    var response = { headersSent: false, writableEnded: false, finished: false };
+    expect(r.dispatch({ url: "/guarded", method: "GET" }, response)).toEqual(true);
+    expect(fired).toEqual(true);
+    expect(r.dispatch("/guarded")).toEqual(true);
+  });
+
+  it("should not trigger caller 404 fallback when middleware aborts after executing route", async function() {
+    r.use(function(req, next) {
+      next();
+      next.abort();
+    });
+    r.get("/handled-abort", function(req) {
+      // Defer completion so writableEnded/headersSent stay false while dispatch() evaluates
+      setTimeout(function() {
+        req.response.end("handled ok");
+      }, 5);
+    });
+    var handled;
+    var server = http.createServer(function(request, response) {
+      handled = r.dispatch(request, response);
+      if (!handled) { response.statusCode = 404; response.end("Fallback 404"); }
+    });
+
+    try {
+      await new Promise(function(resolve) { server.listen(0, "127.0.0.1", resolve); });
+      var result = await fetch("http://127.0.0.1:" + server.address().port + "/handled-abort");
+      expect(handled).toEqual(true);
+      expect(result.status).toEqual(200);
+      expect(await result.text()).toEqual("handled ok");
+    } finally {
+      await new Promise(function(resolve) { server.close(resolve); });
+    }
+  });
+
   it("should return true when middleware stops after ending the response", function() {
     var fired = false;
     var response = {

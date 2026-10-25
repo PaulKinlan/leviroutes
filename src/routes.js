@@ -256,6 +256,7 @@ const routes = function(options) {
       // Execute middleware chain
       var middlewareIndex = 0;
       var aborted = false;
+      var handled = false;
       var next = function() {
         if (aborted) return;
         if (middlewareIndex < _middleware.length) {
@@ -263,6 +264,7 @@ const routes = function(options) {
           middleware(req, next);
         } else {
           // All middleware executed, call the route callback
+          handled = true;
           route.callback(req);
         }
       };
@@ -270,12 +272,14 @@ const routes = function(options) {
       // A synchronous server middleware can explicitly transfer responsibility
       // back to the caller. Without that signal, no immediate next() is also a
       // valid deferred next(), so a matched route must still count as handled.
+      // Once the route callback executes (handled = true), dispatch() always reports
+      // handled: a late abort afterwards cannot un-handle an executed route.
       next.abort = function() { aborted = true; };
 
       // Start middleware execution
       next();
 
-      return !server || !aborted || !!(server.response &&
+      return !server || handled || !aborted || !!(server.response &&
         (server.response.headersSent || server.response.writableEnded || server.response.finished));
     }
 
@@ -300,7 +304,10 @@ const routes = function(options) {
   // (get/post), unlike the browser paths which stay method-agnostic for
   // backwards compatibility. Returns true when a route matches, unless server
   // middleware explicitly calls next.abort() before returning without
-  // committing the response; the caller can then send its own fallback.
+  // committing the response; the caller can then send its own fallback. If the
+  // route handler has already executed, dispatch() returns true even if
+  // middleware calls next.abort() afterwards; a late abort cannot un-handle a
+  // request whose callback ran.
   this.dispatch = function(request, response) {
     var url;
     var method;
