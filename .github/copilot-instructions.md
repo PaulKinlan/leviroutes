@@ -9,12 +9,12 @@ LeviRoutes is a lightweight JavaScript routing framework for HTML5 History API. 
 - **Language**: JavaScript (ES Modules)
 - **Testing**: Jasmine 5.1.0
 - **Build**: Terser for minification
-- **Environment**: Browser-based (with Node.js for testing via jsdom)
+- **Environment**: Isomorphic / Universal (browser client routing and Node.js server request dispatch)
 
 ## Project Structure
 ```
 src/
-  routes.js           # Main routing framework (single file, ~190 lines)
+  routes.js           # Main routing framework (single file, ~450 lines)
 spec/
   *.spec.mjs         # Jasmine test files
   support/           # Test configuration
@@ -38,7 +38,7 @@ dist/
 - **Route definition**: Routes stored as objects with `regex`, `callback`, and `method` properties
 - **Named parameters**: Parse `:paramName` syntax into regex groups
 - **Middleware chain**: Execute middleware sequentially via `next()` callback pattern
-- **Request object**: `{ url, params, values, e }` structure
+- **Request object**: `{ url, params, values, e }` structure (with `method`, `request`, and `response` populated when dispatched on the server via `dispatch()`)
 
 ### Browser Detection
 Always check for browser environment before accessing DOM:
@@ -144,7 +144,7 @@ describe("feature name", function() {
 ### History API
 - Proxy `pushState` to add custom event support
 - Handle both `popstate` and `hashchange` events
-- Prevent duplicate event firing with cancellation flags
+- Pair fragment navigation events by event kind (`isPairedNavigationEvent` and `lastRoutedBy`) to prevent double-routing without swallowing real Back presses (no URL-based cancellation flags)
 
 ## Documentation Standards
 - Update README.md for new features
@@ -165,7 +165,7 @@ describe("feature name", function() {
 - Avoid XSS vulnerabilities in route handlers (user responsibility, but document)
 
 ## Performance Considerations
-- Keep the framework lightweight (current: ~190 lines unminified)
+- Keep the framework lightweight (current: ~450 lines unminified)
 - Minimize regex compilation (done once per route)
 - Efficient route matching (linear search is acceptable for typical use cases)
 - No unnecessary DOM operations
