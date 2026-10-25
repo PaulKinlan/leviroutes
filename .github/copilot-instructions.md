@@ -1,7 +1,7 @@
 # Copilot Instructions for LeviRoutes
 
 ## Project Overview
-LeviRoutes is a lightweight JavaScript routing framework for HTML5 History API. It enables client-side routing with support for GET/POST methods, named parameters, and middleware.
+LeviRoutes is a lightweight JavaScript routing framework for HTML5 History API and server-side request routing. It enables client-side SPA routing and server-side HTTP/Fetch request dispatch with support for GET/POST methods, named parameters, and middleware.
 
 **⚠️ Note**: This is a legacy project that is not actively maintained. Changes should maintain backward compatibility and the minimal footprint philosophy.
 
@@ -9,16 +9,24 @@ LeviRoutes is a lightweight JavaScript routing framework for HTML5 History API. 
 - **Language**: JavaScript (ES Modules)
 - **Testing**: Jasmine 5.1.0
 - **Build**: Terser for minification
-- **Environment**: Browser-based (with Node.js for testing via jsdom)
+- **Environment**: Isomorphic / Universal (browser client routing and Node.js server request dispatch)
 
 ## Project Structure
 ```
 src/
-  routes.js           # Main routing framework (single file, ~190 lines)
+  routes.js           # Main routing framework (single file, ~450 lines)
 spec/
   *.spec.mjs         # Jasmine test files
   support/           # Test configuration
   helpers/           # Test helpers
+tools/
+  fast-gate.sh       # Fast gate runner (affected suites, <=60s)
+  full-gate.sh       # Full gate runner (all suites, <=300s)
+  suite-map.tsv      # Source-to-suite mapping for fast gate
+  verify-package.mjs # Prepublish package/artifact verification
+docs/
+  speed.md           # Gate speed contracts and budgets
+  urlpattern-investigation.md # URLPattern implementation findings
 examples/
   client/            # Example implementations
 dist/
@@ -35,10 +43,11 @@ dist/
 - Use function expressions for internal functions
 
 ### Code Patterns
-- **Route definition**: Routes stored as objects with `regex`, `callback`, and `method` properties
-- **Named parameters**: Parse `:paramName` syntax into regex groups
-- **Middleware chain**: Execute middleware sequentially via `next()` callback pattern
-- **Request object**: `{ url, params, values, e }` structure
+- **Route definition**: Routes stored as objects with `regex` (holding either `regexp` or URLPattern `pattern`), `callback`, and `method` properties
+- **Matcher modes**: Default RegExp matcher (`parseGroups`) and opt-in Web URLPattern matcher selected via `new routes({ matcher: 'urlpattern' })` (see README.md)
+- **Named parameters**: Parse `:paramName` syntax into regex groups or URLPattern pathname groups
+- **Middleware chain**: Execute middleware sequentially via `next()` callback pattern (with `next.abort()` to halt dispatch)
+- **Request object**: `{ url, params, values, e }` structure (with `method`, `request`, and `response` populated when dispatched on the server via `dispatch()`)
 
 ### Browser Detection
 Always check for browser environment before accessing DOM:
@@ -57,11 +66,14 @@ npm install
 
 ### Running Tests
 ```bash
-npm test
+npm test              # Run Jasmine test suite
+npm run test:fast     # Run affected test suites for changed files (fast-gate.sh)
+npm run test:full     # Run full verification gate (full-gate.sh)
 ```
 - All tests must pass before committing
 - Tests use Jasmine with jsdom for DOM emulation
 - Test files end with `.spec.mjs`
+- When adding new test files or modifying project files, keep `tools/suite-map.tsv` updated; `tools/fast-gate.sh` will fail if any changed file is unmapped. See `docs/speed.md` for gate contract details.
 
 ### Building
 ```bash
@@ -94,9 +106,9 @@ python -m http.server 8000
 4. Document in README.md
 
 ### Modifying Route Parsing
-1. Edit `parseRoute` or `parseGroups` functions
+1. Edit `parseRoute` or `parseGroups` functions (note: `parseRoute` branches to `compileUrlPattern` when `{ matcher: 'urlpattern' }` is enabled)
 2. Update regex patterns carefully (affects backward compatibility)
-3. Add comprehensive tests in `spec/routeparsing.spec.mjs`
+3. Add comprehensive tests in `spec/routeparsing.spec.mjs` and `spec/urlpatternmatcher.spec.mjs`
 4. Test with existing examples
 
 ## Testing Guidelines
@@ -119,11 +131,15 @@ describe("feature name", function() {
 ```
 
 ### Test Coverage Areas
-- Route parsing and regex generation
-- Named parameter extraction
-- Middleware execution order
-- GET/POST method handling
-- Browser environment detection
+- Route parsing and regex generation (`spec/routeparsing.spec.mjs`)
+- Named parameter extraction and route execution (`spec/routeexecution.spec.mjs`)
+- Middleware execution order and abort handling (`spec/middleware.spec.mjs`)
+- GET/POST method handling and route management (`spec/routemanagement.spec.mjs`)
+- Server-side request dispatch for Node and Fetch requests (`spec/serverdispatch.spec.mjs`)
+- Opt-in URLPattern matcher (`spec/urlpatternmatcher.spec.mjs`)
+- DOM and History state isolation (`spec/fixtureisolation.spec.mjs`)
+- Gate tooling and suite mapping integrity (`tools/fast-gate.test.sh`)
+- Browser environment detection and legacy framework behavior (`spec/routesframework.spec.mjs`)
 
 ## Common Pitfalls
 
@@ -144,7 +160,7 @@ describe("feature name", function() {
 ### History API
 - Proxy `pushState` to add custom event support
 - Handle both `popstate` and `hashchange` events
-- Prevent duplicate event firing with cancellation flags
+- Pair fragment navigation events by event kind (`isPairedNavigationEvent` and `lastRoutedBy`) to prevent double-routing without swallowing real Back presses (no URL-based cancellation flags)
 
 ## Documentation Standards
 - Update README.md for new features
@@ -165,7 +181,7 @@ describe("feature name", function() {
 - Avoid XSS vulnerabilities in route handlers (user responsibility, but document)
 
 ## Performance Considerations
-- Keep the framework lightweight (current: ~190 lines unminified)
+- Keep the framework lightweight (current: ~450 lines unminified)
 - Minimize regex compilation (done once per route)
 - Efficient route matching (linear search is acceptable for typical use cases)
 - No unnecessary DOM operations
