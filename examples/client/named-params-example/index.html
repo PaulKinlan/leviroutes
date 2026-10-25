@@ -82,21 +82,29 @@
   </div>
 
   <h2>Code Example</h2>
-  <pre><code>// Named parameters are defined with a colon
-app.get("/user/:username", function(req) {
+  <pre><code>// Routes match the whole pathname, so prefix with this page's directory.
+var base = location.pathname.replace(/[^/]*$/, '');
+
+// Named parameters are defined with a colon
+app.get(base + "user/:username", function(req) {
   console.log("Username:", req.params.username);
 });
 
 // Multiple parameters
-app.get("/user/:username/post/:postId", function(req) {
+app.get(base + "user/:username/post/:postId", function(req) {
   console.log("User:", req.params.username);
   console.log("Post ID:", req.params.postId);
 });
 
 // Parameters with format
-app.get("/:category.:format", function(req) {
+app.get(base + ":category.:format", function(req) {
   console.log("Category:", req.params.category);
   console.log("Format:", req.params.format);
+});
+
+// LeviRoutes dispatches 'statechanged' on pushState
+window.addEventListener("statechanged", function() {
+  app.test(location.pathname);
 });</code></pre>
 
   <script type="module">
@@ -104,6 +112,10 @@ app.get("/:category.:format", function(req) {
     
     const app = new routes();
     const output = document.getElementById('output');
+
+    // Routes match the whole pathname (anchored ^...$), so register them under
+    // this page's directory. Serve from the repo root (see examples/README.md).
+    var base = location.pathname.replace(/[^/]*$/, '');
     
     function clearOutput() {
       output.innerHTML = '';
@@ -131,8 +143,8 @@ app.get("/:category.:format", function(req) {
       output.appendChild(div);
     }
     
-    // Route 1: Home page
-    app.get("/", function(req) {
+    // Route 1: Home page (matches directory base or index.html)
+    app.get(base + "(?:index\\.html)?", function(req) {
       clearOutput();
       log("Home Route", true);
       log("URL: " + req.url);
@@ -140,7 +152,7 @@ app.get("/:category.:format", function(req) {
     });
     
     // Route 2: User profile with username parameter
-    app.get("/user/:username", function(req) {
+    app.get(base + "user/:username", function(req) {
       clearOutput();
       log("User Profile Route", true);
       log("URL: " + req.url);
@@ -149,7 +161,7 @@ app.get("/:category.:format", function(req) {
     });
     
     // Route 3: Blog post with postId parameter
-    app.get("/post/:postId", function(req) {
+    app.get(base + "post/:postId", function(req) {
       clearOutput();
       log("Blog Post Route", true);
       log("URL: " + req.url);
@@ -158,7 +170,7 @@ app.get("/:category.:format", function(req) {
     });
     
     // Route 4: Category with format (e.g., news.json, blog.xml)
-    app.get("/:category.:format", function(req) {
+    app.get(base + ":category.:format", function(req) {
       clearOutput();
       log("Category with Format Route", true);
       log("URL: " + req.url);
@@ -169,7 +181,7 @@ app.get("/:category.:format", function(req) {
     });
     
     // Route 5: Nested parameters - user posts
-    app.get("/user/:username/post/:postId", function(req) {
+    app.get(base + "user/:username/post/:postId", function(req) {
       clearOutput();
       log("Nested Parameters Route", true);
       log("URL: " + req.url);
@@ -180,42 +192,47 @@ app.get("/:category.:format", function(req) {
     // Set up click handlers for navigation
     document.getElementById('link-home').addEventListener('click', function(e) {
       e.preventDefault();
-      history.pushState(null, 'Home', '/');
+      history.pushState(null, 'Home', base);
     });
     
     document.getElementById('link-user1').addEventListener('click', function(e) {
       e.preventDefault();
-      history.pushState(null, 'User: alice', '/user/alice');
+      history.pushState(null, 'User: alice', base + 'user/alice');
     });
     
     document.getElementById('link-user2').addEventListener('click', function(e) {
       e.preventDefault();
-      history.pushState(null, 'User: bob', '/user/bob');
+      history.pushState(null, 'User: bob', base + 'user/bob');
     });
     
     document.getElementById('link-post1').addEventListener('click', function(e) {
       e.preventDefault();
-      history.pushState(null, 'Post: hello-world', '/post/hello-world');
+      history.pushState(null, 'Post: hello-world', base + 'post/hello-world');
     });
     
     document.getElementById('link-post2').addEventListener('click', function(e) {
       e.preventDefault();
-      history.pushState(null, 'Post: tutorial', '/post/tutorial');
+      history.pushState(null, 'Post: tutorial', base + 'post/tutorial');
     });
     
     document.getElementById('link-cat-json').addEventListener('click', function(e) {
       e.preventDefault();
-      history.pushState(null, 'Category: news (JSON)', '/news.json');
+      history.pushState(null, 'Category: news (JSON)', base + 'news.json');
     });
     
     document.getElementById('link-cat-xml').addEventListener('click', function(e) {
       e.preventDefault();
-      history.pushState(null, 'Category: blog (XML)', '/blog.xml');
+      history.pushState(null, 'Category: blog (XML)', base + 'blog.xml');
     });
     
     document.getElementById('link-nested').addEventListener('click', function(e) {
       e.preventDefault();
-      history.pushState(null, 'User alice, Post 123', '/user/alice/post/123');
+      history.pushState(null, 'User alice, Post 123', base + 'user/alice/post/123');
+    });
+
+    // LeviRoutes dispatches 'statechanged' on pushState
+    window.addEventListener('statechanged', function() {
+      app.test(location.pathname);
     });
     
     // Run initial route on page load
