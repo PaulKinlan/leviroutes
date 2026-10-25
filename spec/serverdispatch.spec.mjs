@@ -170,7 +170,12 @@ describe("server dispatch", function() {
       next();
       next.abort();
     });
-    r.get("/handled-abort", function(req) { req.response.end("handled ok"); });
+    r.get("/handled-abort", function(req) {
+      // Defer completion so writableEnded/headersSent stay false while dispatch() evaluates
+      setTimeout(function() {
+        req.response.end("handled ok");
+      }, 5);
+    });
     var handled;
     var server = http.createServer(function(request, response) {
       handled = r.dispatch(request, response);

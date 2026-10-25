@@ -272,6 +272,8 @@ const routes = function(options) {
       // A synchronous server middleware can explicitly transfer responsibility
       // back to the caller. Without that signal, no immediate next() is also a
       // valid deferred next(), so a matched route must still count as handled.
+      // Once the route callback executes (handled = true), dispatch() always reports
+      // handled: a late abort afterwards cannot un-handle an executed route.
       next.abort = function() { aborted = true; };
 
       // Start middleware execution
