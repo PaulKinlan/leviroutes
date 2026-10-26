@@ -1,6 +1,8 @@
-<!doctype>
-<html>
+<!DOCTYPE html>
+<html lang="en">
   <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Get - Example 1</title>
     <script type="module">
       import routes from '../../../src/routes.js';
@@ -38,7 +40,7 @@
   <body>
     <p>This is an example of HTML5 History and LeviRoutes</p>
     <p>Navigate to page2, you will see the event doesn't fire.  This is ok, because you are overriding the click event so you can handle it there.  Now click on the navigation buttons forwards and backwards and watch the event fire.</p>
-    <pre><code>var app = new routes();
+    <pre style="overflow-x: auto;"><code>var app = new routes();
 
 // Routes match the whole pathname, so prefix with this page's directory.
 var base = location.pathname.replace(/[^/]*$/, '');
