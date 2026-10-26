@@ -8,7 +8,11 @@ Paul, 2026-10-11: *"We need to architect each fleet and the architecture of the 
 
 ## 1. Gate Architecture & Budgets
 
-Leviroutes defines two distinct gate tiers adhering to fleet rules R1–R5:
+Leviroutes defines two distinct gate tiers adhering to fleet rules R1, R2, R5, R11, R13 and R14:
+
+- **R1 / R2 / R5** — the tier shape and selection: a fast gate that is a strict subset of the full gate and budgeted ≤ 60 s, affected-only selection via `tools/suite-map.tsv`, failing loudly on unmapped files.
+- **R11 / R13** — the full gate is the merger's single union gate, not something an implementer runs per change.
+- **R14** — the gate must cover what a change can affect; that is what the coverage contract in `.fleet/coverage-contract.json` enforces.
 
 | Tier | Script | Target / Budget | Executed By | Selection |
 |---|---|---|---|---|
@@ -31,16 +35,17 @@ Under representative VM load (load average 1–3), the full gate executes three 
 - Package condition export resolution in child processes (default import, browser condition, functional execution) (~0.6 s)
 
 ### Stage 2: Full Spec Suite (`npm test`) — ~40–45 s
-- 86 specs across 8 test suites (`spec/*.spec.mjs`)
+- 91 specs across 8 test suites (`spec/*.spec.mjs`)
 - **Fixture isolation constraint:** Every single spec constructs an isolated JSDOM instance (`spec/helpers/dom-helper.mjs`) to guarantee unwrapped `history.pushState` and zero listener leaks across specs (`spec/fixtureisolation.spec.mjs`). This intentional architectural isolation accounts for the ~40 s test execution time.
 
 ### Stage 3: Gate Tooling Self-Tests (`bash tools/fast-gate.test.sh`) — ~40 s
-- **Section 1 (38 tests, ~3 s):** Selection mapping, fail-loud unmapped rejection, spec self-mapping, exemptions, `--list`, dead row rejection, and coverage contract conformance. Direct exit code capture eliminates 9 redundant runner child processes.
-- **Section 2 (15 tests, ~1 s):** `tools/check.conf` validation, drift detection, and `--install` stamping.
-- **Section 3 (7 tests, ~10 s):** `tools/full-gate.sh` step execution and failure loud-reporting orchestration.
-- **Section 4 (21 tests, ~26 s):** End-to-end publish lifecycle verification:
+*Counts below were recounted on 2026-10-26 against this tree: 94 assertions in total, matching the self-test's own `gate tooling tests: 94 passed, 0 failed` summary line. Recount after any edit to `tools/fast-gate.test.sh` with `bash tools/fast-gate.test.sh 2>&1 | awk '/=== Section 1/{s=1} /=== Section 2/{s=2} /=== Section 3/{s=3} /=== Section 4/{s=4} /^ *ok /{c[s]++} END{for(i=1;i<=4;i++) printf "Section %d: %d\n", i, c[i]}'` — a stale count here is a stale contract, because `tools/fast-gate.sh` and `tools/full-gate.sh` cite this document.*
+- **Section 1 (54 tests, ~3 s):** Selection mapping, fail-loud unmapped rejection, spec self-mapping, exemptions, `--list`, dead row rejection, and coverage contract conformance. Direct exit code capture eliminates 9 redundant runner child processes.
+- **Section 2 (11 tests, ~1 s):** `tools/check.conf` validation, drift detection, and `--install` stamping.
+- **Section 3 (6 tests, ~10 s):** `tools/full-gate.sh` step execution and failure loud-reporting orchestration.
+- **Section 4 (23 tests, ~26 s):** End-to-end publish lifecycle verification:
   - 17a / 17a2 (~23 s): Real positive full verification executed as a standalone CLI process (`node tools/verify-package.mjs`) verifying build artifact creation, minification byte-matching, runtime smoke tests, and package export resolution.
-  - 17b–17o2 (~3 s): 16 negative failure assertions and 1 in-sync dependency bump parity assertion batched into a single in-process Node runner, eliminating 20+ cold-start process invocations while preserving exact error message contracts.
+  - 17b–17n (~3 s): 17 negative failure assertions batched into a single in-process Node runner, eliminating 20+ cold-start process invocations while preserving exact error message contracts; 17o / 17o2 add the in-sync dependency bump parity pair, 17p asserts the runner accounted for every Section 4 assertion, and 17q asserts a simulated runner exit 37 fails closed rather than rejecting zero checks.
 
 ## 3. History & Measured Optimizations
 
