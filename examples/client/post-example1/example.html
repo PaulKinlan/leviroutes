@@ -1,6 +1,8 @@
-<!doctype>
-<html>
+<!DOCTYPE html>
+<html lang="en">
   <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Post - Example 1</title>
     <script type="module">
       import routes from '../../../src/routes.js';
@@ -22,7 +24,7 @@
 
   <body>
     <p>This is an example of capturing a POST, we have two forms, the 1st will be intercepted by the framework, the 2nd will not and will be passed through to the server</p>
-    <pre><code>var app = new routes();
+    <pre style="overflow-x: auto;"><code>var app = new routes();
 
 // Routes match the whole pathname, so prefix with this page's directory.
 var base = location.pathname.replace(/[^/]*$/, '');
