@@ -397,4 +397,51 @@ describe("routing", function() {
     r3.test("/run/123");
     expect(seen3).toEqual({ action: "run", id: "123" });
   });
+
+  it("should not match paths exceeding MAX_PATH_LENGTH", function() {
+    var matched = false;
+    r.get("/api/:endpoint", function() {
+      matched = true;
+    });
+
+    var longPath = "/api/" + "x".repeat(5000);
+    r.test(longPath);
+    expect(matched).toEqual(false);
+  });
+
+  it("should fail closed on dispatch when path exceeds MAX_PATH_LENGTH", function() {
+    var matched = false;
+    r.get("/test", function() {
+      matched = true;
+    });
+
+    // Path itself is oversized:
+    var longPathUrl = "/" + "a".repeat(5000);
+    expect(r.dispatch(longPathUrl)).toEqual(false);
+  });
+
+  it("should match valid short paths even when query string is large (> 8192 chars)", function() {
+    var hit = null;
+    var r2 = new routes();
+    r2.get("/search", function() {
+      hit = "search";
+    });
+
+    // Query string is over 8192 chars, but pathname is /search:
+    var longQueryUrl = "/search?" + "q=" + "a".repeat(9000);
+    expect(r2.dispatch(longQueryUrl)).toEqual(true);
+    expect(hit).toEqual("search");
+  });
+
+  it("should not match a catch-all route when path is oversized", function() {
+    var hit = null;
+    var r3 = new routes();
+    r3.get("(.*)", function() {
+      hit = "catchall";
+    });
+
+    var oversizedPath = "/" + "a".repeat(5000);
+    expect(r3.dispatch(oversizedPath)).toEqual(false);
+    expect(hit).toEqual(null);
+  });
 });
