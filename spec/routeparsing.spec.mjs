@@ -173,5 +173,23 @@ describe("route parsing", function() {
     expect(function() {
       r.get("/x/:id((a*)*)", function(){});
     }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/x/:id(((a+))+b)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/x/:id((a{1,})+b)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/x/((a)+)+b", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+  });
+
+  it("should accept quantifiers with character classes containing plus or asterisk without false rejection", function() {
+    var r3 = new routes();
+    r3.get("/x/(a[+]b)+", function(){});
+    expect(r3.getRoutes()[0].regex.regexp).toEqual(/^(?:\/x\/(a[+]b)+)$/);
   });
 });

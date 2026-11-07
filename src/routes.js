@@ -31,10 +31,91 @@ const routes = function(options) {
   var MAX_PATTERN_LENGTH = 2048;
   var MAX_PATH_LENGTH = 4096;
 
-  // Helper to detect nested quantifiers like (a+)+, (a*)*, or (a+){2,} that trigger
-  // catastrophic backtracking in regular expressions (tm-unbounded-pattern-eval-on-untrusted-path).
+  // Parse-aware helper to detect nested quantifiers like (a+)+, ((a+))+, (a{1,})+, or (a+){2,}
+  // that trigger catastrophic backtracking in regular expressions (tm-unbounded-pattern-eval-on-untrusted-path,
+  // leviroutes-njt, leviroutes-39k).
   var hasNestedQuantifiers = function(pattern) {
-    return /(\([^\\)]*?[+*][^\\)]*?\))[+*{]/.test(pattern);
+    var stack = [];
+    var inCharClass = false;
+    var escaped = false;
+
+    for (var i = 0; i < pattern.length; i++) {
+      var c = pattern[i];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (c === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (inCharClass) {
+        if (c === "]") inCharClass = false;
+        continue;
+      }
+      if (c === "[") {
+        inCharClass = true;
+        continue;
+      }
+      if (c === "(") {
+        stack.push({ hasQuantifier: false });
+        continue;
+      }
+      if (c === ")") {
+        var frame = stack.pop() || { hasQuantifier: false };
+        var isQuantified = false;
+        var nextIdx = i + 1;
+        var nextChar = pattern[nextIdx];
+        if (nextChar === "+" || nextChar === "*" || nextChar === "?") {
+          isQuantified = true;
+          i++;
+          if (pattern[i + 1] === "?") i++;
+        } else if (nextChar === "{") {
+          var closeBrace = pattern.indexOf("}", nextIdx);
+          if (closeBrace !== -1) {
+            var innerBrace = pattern.slice(nextIdx + 1, closeBrace);
+            if (/^\d+,?\d*$/.test(innerBrace)) {
+              isQuantified = true;
+              i = closeBrace;
+              if (pattern[i + 1] === "?") i++;
+            }
+          }
+        }
+
+        if (isQuantified) {
+          if (frame.hasQuantifier) {
+            return true;
+          }
+          if (stack.length > 0) {
+            stack[stack.length - 1].hasQuantifier = true;
+          }
+        } else if (frame.hasQuantifier && stack.length > 0) {
+          stack[stack.length - 1].hasQuantifier = true;
+        }
+        continue;
+      }
+
+      if (c === "+" || c === "*" || c === "?") {
+        if (stack.length > 0) {
+          stack[stack.length - 1].hasQuantifier = true;
+        }
+        if (pattern[i + 1] === "?") i++;
+      } else if (c === "{") {
+        var closeBrace = pattern.indexOf("}", i);
+        if (closeBrace !== -1) {
+          var innerBrace = pattern.slice(i + 1, closeBrace);
+          if (/^\d+,?\d*$/.test(innerBrace)) {
+            if (stack.length > 0) {
+              stack[stack.length - 1].hasQuantifier = true;
+            }
+            i = closeBrace;
+            if (pattern[i + 1] === "?") i++;
+          }
+        }
+      }
+    }
+
+    return false;
   };
 
   var urlPatternCtor = function() {
