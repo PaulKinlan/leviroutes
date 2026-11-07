@@ -435,6 +435,29 @@ const routes = function(options) {
       return { branches: [newBranch(0)] };
     };
 
+    var checkBranchConsecutiveNullable = function(branch) {
+      var consecutiveNullCount = 0;
+      var lastNullAtom = null;
+      for (var a = 0; a < branch.atoms.length; a++) {
+        var atom = branch.atoms[a];
+        if (atom.nullableCount > 0) {
+          if (lastNullAtom === null || branchesOverlap(lastNullAtom.text, atom.text)) {
+            consecutiveNullCount += atom.nullableCount;
+          } else {
+            consecutiveNullCount = atom.nullableCount;
+          }
+          lastNullAtom = atom;
+          if (consecutiveNullCount >= 8) {
+            return true;
+          }
+        } else {
+          consecutiveNullCount = 0;
+          lastNullAtom = null;
+        }
+      }
+      return false;
+    };
+
     var stack = [];
     var currentFrame = newFrame();
     var inCharClass = false;
@@ -456,12 +479,18 @@ const routes = function(options) {
           end = q.end;
           i = q.end;
         }
+        var nullCount = 0;
+        if (isNull) {
+          nullCount = (q && q.max !== undefined && q.max !== Infinity) ? q.max : 1;
+        }
         curBranch.atoms.push({
           text: pattern.slice(atomStart, end + 1),
           isRepetition: isRep,
           isNullable: isNull,
-          isVariable: q ? q.isVariable : false
+          isVariable: q ? q.isVariable : false,
+          nullableCount: nullCount
         });
+        if (checkBranchConsecutiveNullable(curBranch)) return true;
         continue;
       }
       if (c === "\\") {
@@ -483,12 +512,18 @@ const routes = function(options) {
             end = q.end;
             i = q.end;
           }
+          var nullCount = 0;
+          if (isNull) {
+            nullCount = (q && q.max !== undefined && q.max !== Infinity) ? q.max : 1;
+          }
           curBranch.atoms.push({
             text: pattern.slice(atomStart, end + 1),
             isRepetition: isRep,
             isNullable: isNull,
-            isVariable: q ? q.isVariable : false
+            isVariable: q ? q.isVariable : false,
+            nullableCount: nullCount
           });
+          if (checkBranchConsecutiveNullable(curBranch)) return true;
         }
         continue;
       }
@@ -561,12 +596,15 @@ const routes = function(options) {
         var innerIsVariable = false;
         var frameHasMultipleNullable = false;
         var frameCanMatchEmpty = false;
+        var frameNullableCount = 0;
 
         for (var bIdx = 0; bIdx < finishedFrame.branches.length; bIdx++) {
           var fb = finishedFrame.branches[bIdx];
           var fbAtoms = fb.atoms;
           var branchNull = true;
+          var bNullCount = 0;
           for (var a = 0; a < fbAtoms.length; a++) {
+            bNullCount += fbAtoms[a].nullableCount || 0;
             if (!fbAtoms[a].isNullable) {
               branchNull = false;
               break;
@@ -577,6 +615,7 @@ const routes = function(options) {
             if (fbAtoms.length >= 2) {
               frameHasMultipleNullable = true;
             }
+            frameNullableCount = Math.max(frameNullableCount, bNullCount);
           }
           for (var a = 0; a < fbAtoms.length; a++) {
             if (fbAtoms[a].hasMultipleNullable) {
@@ -585,16 +624,21 @@ const routes = function(options) {
           }
         }
 
+        var groupNullableCount = 0;
+        if (frameCanMatchEmpty) {
+          innerIsNull = true;
+          var repFactor = (q && q.max !== undefined && q.max !== Infinity) ? q.max : 1;
+          groupNullableCount = Math.max(1, frameNullableCount) * repFactor;
+          if (groupNullableCount >= 8) {
+            return true;
+          }
+        }
+
         if (finishedFrame.branches.length === 1 && finishedFrame.branches[0].atoms.length === 1) {
           var innerAtom = finishedFrame.branches[0].atoms[0];
           if (innerAtom.isVariable && innerAtom.isRepetition) innerIsRep = true;
           if (innerAtom.isNullable) innerIsNull = true;
           if (innerAtom.isVariable) innerIsVariable = true;
-          if (innerAtom.isNullable && q && q.max !== undefined && q.max !== Infinity && q.max >= 8) {
-            return true;
-          }
-        } else if (frameCanMatchEmpty) {
-          innerIsNull = true;
         }
 
         if (isRep) {
@@ -678,8 +722,10 @@ const routes = function(options) {
           isRepetition: isRep || innerIsRep,
           isNullable: isNull || innerIsNull,
           isVariable: q ? q.isVariable : innerIsVariable,
-          hasMultipleNullable: frameHasMultipleNullable
+          hasMultipleNullable: frameHasMultipleNullable,
+          nullableCount: (isNull || innerIsNull) ? groupNullableCount : 0
         });
+        if (checkBranchConsecutiveNullable(currentBranch)) return true;
         continue;
       }
 
@@ -694,13 +740,19 @@ const routes = function(options) {
         end = q.end;
         i = q.end;
       }
+      var nullCount = 0;
+      if (isNull) {
+        nullCount = (q && q.max !== undefined && q.max !== Infinity) ? q.max : 1;
+      }
       var curBranch = currentFrame.branches[currentFrame.branches.length - 1];
       curBranch.atoms.push({
         text: pattern.slice(atomStart, end + 1),
         isRepetition: isRep,
         isNullable: isNull,
-        isVariable: q ? q.isVariable : false
+        isVariable: q ? q.isVariable : false,
+        nullableCount: nullCount
       });
+      if (checkBranchConsecutiveNullable(curBranch)) return true;
     }
 
     return false;
