@@ -8,6 +8,16 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
 
+# Persistent V8 compile cache, same as the fast gate (leviroutes-43f): the full
+# gate's verify-package and npm test each pay node cold-start per process, and
+# the shared per-user cache cuts roughly 30% of that. Proceeds without the
+# cache if the location is not writable (leviroutes-23r).
+if [ -z "${NODE_COMPILE_CACHE:-}" ]; then
+  NODE_COMPILE_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/leviroutes-node-compile-cache"
+  export NODE_COMPILE_CACHE
+  mkdir -p "$NODE_COMPILE_CACHE" 2>/dev/null || unset NODE_COMPILE_CACHE
+fi
+
 rc=0
 step() { printf '\n[gate] %s\n' "$1"; }
 
