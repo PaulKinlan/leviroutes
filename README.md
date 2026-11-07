@@ -15,6 +15,10 @@ Install via npm:
 npm install leviroutes
 ```
 
+npm currently serves `1.0.0`. The next release is `2.0.0`, which makes route matching whole-path
+(see [Route matching](#route-matching)); read [`CHANGELOG.md`](CHANGELOG.md#migrating-from-1x) before
+upgrading a route table written for 1.x.
+
 Or use it directly from a CDN with ES modules:
 
 ```html
@@ -89,7 +93,15 @@ A route is matched against the **whole pathname**, and a literal `.` in a route 
   reaches `app.post("/test")` while `action="http://other.test/deep/test"` does not.
 
 The rest of a route string is still treated as regular-expression syntax (`/foo+`, `/a|b`) by the
-default matcher.
+default matcher — with one exception: because a `.` in a route is always a literal dot, `.*` cannot
+spell "any characters". A catch-all route is `app.get("/[^]*")` (`[^]` is "any character" in a
+JavaScript regular expression), and "any path ending in a slash" is `app.get("/[^]*\\/")`.
+
+Both rules above are the **2.0.0 breaking change**: 1.x matched a route against the end of the
+pathname only, so `/user/:id` also matched `/deep/user/42`, `/` also matched `/anything/`, and a `.`
+in a route was the regular-expression "any character". Upgrading a 1.x route table may therefore make
+routes match fewer paths — [`CHANGELOG.md`](CHANGELOG.md#migrating-from-1x) lists every difference
+with a tested migration for each, and `app.test(path)` tells you quickly which paths a route accepts.
 
 ### Optional: the URL Pattern matcher
 
