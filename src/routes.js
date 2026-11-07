@@ -32,7 +32,7 @@ const routes = function(options) {
   var MAX_PATH_LENGTH = 4096;
   var MAX_VALUES_COUNT = 1024;
 
-  // Parse quantifier token at startIdx in pattern: returns { isRepetition, isVariable, end } or null.
+  // Parse quantifier token at startIdx in pattern: returns { isRepetition, isNullable, isVariable, end } or null.
   // Repetition quantifiers (+, *, {n,m} where max > 1) can repeat multiple times.
   // Fixed quantifiers ({1}, {2} where min === max) match a fixed number of times and cannot cause variable ambiguity.
   // Optional quantifiers (?, {0,1}) match at most once.
@@ -43,7 +43,7 @@ const routes = function(options) {
     if (c === "+" || c === "*") {
       var end = startIdx;
       if (pattern[end + 1] === "?") end++;
-      return { isRepetition: true, isVariable: true, end: end };
+      return { isRepetition: true, isNullable: c === "*", isVariable: true, end: end };
     }
     if (c === "?") {
       if (startIdx > 0 && pattern[startIdx - 1] === "(") {
@@ -51,7 +51,7 @@ const routes = function(options) {
       }
       var end = startIdx;
       if (pattern[end + 1] === "?") end++;
-      return { isRepetition: false, isVariable: true, end: end };
+      return { isRepetition: false, isNullable: true, isVariable: true, end: end };
     }
     if (c === "{") {
       var closeBrace = pattern.indexOf("}", startIdx);
@@ -65,7 +65,7 @@ const routes = function(options) {
           if (pattern[end + 1] === "?") end++;
           var isVariable = (max === Infinity || max > min);
           var isRepetition = (max === Infinity || max > 1) && isVariable;
-          return { isRepetition: isRepetition, isVariable: isVariable, end: end };
+          return { isRepetition: isRepetition, isNullable: min === 0, isVariable: isVariable, end: end };
         }
       }
     }
@@ -85,12 +85,14 @@ const routes = function(options) {
         if (i + 1 < branch.length) {
           var esc = branch[i + 1];
           if (/[dswDSWbB]/.test(esc)) break;
+          if (i + 2 < branch.length && /[?*+{]/.test(branch[i + 2])) break;
           res += esc;
           i += 2;
           continue;
         }
       }
       if (/[\[\(\{\+\*\?\|\$\^\.]/.test(branch[i])) break;
+      if (i + 1 < branch.length && /[?*+{]/.test(branch[i + 1])) break;
       res += branch[i];
       i++;
     }
@@ -147,10 +149,18 @@ const routes = function(options) {
   // Parse-aware helper to detect nested quantifiers and overlapping repeated alternations
   // that trigger catastrophic backtracking in regular expressions (tm-unbounded-pattern-eval-on-untrusted-path,
   // leviroutes-njt, leviroutes-39k, leviroutes-1hs, leviroutes-vsu, leviroutes-8sb, leviroutes-aqt, leviroutes-0yz,
-  // leviroutes-a8b, leviroutes-l45).
+  // leviroutes-a8b, leviroutes-l45, leviroutes-bwv, leviroutes-ur3).
   var hasNestedQuantifiers = function(pattern) {
     var newBranch = function(startIdx) {
-      return { atomCount: 0, soleRepetition: false, startIdx: startIdx, hasOverlappingAlternation: false, branchText: "" };
+      return {
+        atomCount: 0,
+        repetitionCount: 0,
+        otherMandatoryCount: 0,
+        hasUnseparatedRepetition: false,
+        startIdx: startIdx,
+        hasOverlappingAlternation: false,
+        branchText: ""
+      };
     };
     var newFrame = function() {
       return { branches: [newBranch(0)] };
@@ -165,6 +175,9 @@ const routes = function(options) {
       var c = pattern[i];
       if (escaped) {
         escaped = false;
+        var b = currentFrame.branches[currentFrame.branches.length - 1];
+        b.atomCount++;
+        b.otherMandatoryCount++;
         continue;
       }
       if (c === "\\") {
@@ -179,7 +192,7 @@ const routes = function(options) {
         inCharClass = true;
         var b = currentFrame.branches[currentFrame.branches.length - 1];
         b.atomCount++;
-        if (b.atomCount > 1) b.soleRepetition = false;
+        b.otherMandatoryCount++;
         continue;
       }
       if (c === "(") {
@@ -193,22 +206,31 @@ const routes = function(options) {
       if (c === "|") {
         var prevBranch = currentFrame.branches[currentFrame.branches.length - 1];
         prevBranch.branchText = pattern.slice(prevBranch.startIdx, i);
+        if (prevBranch.repetitionCount > 0 && prevBranch.otherMandatoryCount <= 0) {
+          prevBranch.hasUnseparatedRepetition = true;
+        }
         currentFrame.branches.push(newBranch(i + 1));
         continue;
       }
       if (c === ")") {
         var lastBranch = currentFrame.branches[currentFrame.branches.length - 1];
         lastBranch.branchText = pattern.slice(lastBranch.startIdx, i);
+        if (lastBranch.repetitionCount > 0 && lastBranch.otherMandatoryCount <= 0) {
+          lastBranch.hasUnseparatedRepetition = true;
+        }
 
         var finishedFrame = currentFrame;
         currentFrame = stack.pop() || newFrame();
         var currentBranch = currentFrame.branches[currentFrame.branches.length - 1];
         currentBranch.atomCount++;
-        if (currentBranch.atomCount > 1) currentBranch.soleRepetition = false;
+        currentBranch.otherMandatoryCount++;
 
-        var frameSoleRepetition = false;
-        if (finishedFrame.branches.length === 1 && finishedFrame.branches[0].soleRepetition) {
-          frameSoleRepetition = true;
+        var frameHasUnseparatedRep = false;
+        for (var f = 0; f < finishedFrame.branches.length; f++) {
+          if (finishedFrame.branches[f].hasUnseparatedRepetition) {
+            frameHasUnseparatedRep = true;
+            break;
+          }
         }
 
         var hasOverlappingAlt = false;
@@ -232,19 +254,20 @@ const routes = function(options) {
 
         var q = parseQuantifierToken(pattern, i + 1);
         if (q) {
+          if (q.isNullable || q.isRepetition) {
+            currentBranch.otherMandatoryCount = Math.max(0, currentBranch.otherMandatoryCount - 1);
+          }
           if (q.isRepetition) {
-            for (var m = 0; m < finishedFrame.branches.length; m++) {
-              if (finishedFrame.branches[m].soleRepetition) return true;
-            }
+            currentBranch.repetitionCount++;
+            if (frameHasUnseparatedRep) return true;
             if (hasOverlappingAlt) return true;
-
-            if (finishedFrame.branches[0].atomCount <= 1) {
-              currentBranch.soleRepetition = true;
-            }
+            currentBranch.hasUnseparatedRepetition = true;
+          } else if (frameHasUnseparatedRep && finishedFrame.branches.length === 1 && finishedFrame.branches[0].otherMandatoryCount <= 0) {
+            currentBranch.hasUnseparatedRepetition = true;
           }
           i = q.end;
-        } else if (frameSoleRepetition && finishedFrame.branches.length === 1 && finishedFrame.branches[0].atomCount <= 1) {
-          currentBranch.soleRepetition = true;
+        } else if (frameHasUnseparatedRep && finishedFrame.branches.length === 1 && finishedFrame.branches[0].otherMandatoryCount <= 0) {
+          currentBranch.hasUnseparatedRepetition = true;
         }
         continue;
       }
@@ -252,8 +275,11 @@ const routes = function(options) {
       var token = parseQuantifierToken(pattern, i);
       if (token) {
         var b = currentFrame.branches[currentFrame.branches.length - 1];
-        if (token.isRepetition && b.atomCount <= 1) {
-          b.soleRepetition = true;
+        if (token.isNullable || token.isRepetition) {
+          b.otherMandatoryCount = Math.max(0, b.otherMandatoryCount - 1);
+        }
+        if (token.isRepetition) {
+          b.repetitionCount++;
         }
         i = token.end;
         continue;
@@ -261,7 +287,7 @@ const routes = function(options) {
 
       var b = currentFrame.branches[currentFrame.branches.length - 1];
       b.atomCount++;
-      if (b.atomCount > 1) b.soleRepetition = false;
+      b.otherMandatoryCount++;
     }
 
     return false;
