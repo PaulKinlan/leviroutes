@@ -50,6 +50,8 @@
     "tools/fast-gate.test.sh"
   ],
   "tools/verify-package.mjs": [
-    "tools/verify-package.mjs"
+    "tools/verify-package.mjs",
+    "spec/verifypackage-registry.spec.mjs",
+    "spec/verifypackage-lifecycle.spec.mjs"
   ]
 }

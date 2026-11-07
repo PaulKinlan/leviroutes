@@ -15,7 +15,9 @@ spec/support/**	spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/route
 # --- Packaging, lockfile and gate tooling ---
 package.json	tools/verify-package.mjs spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs spec/fixtureisolation.spec.mjs
 package-lock.json	tools/verify-package.mjs spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs spec/fixtureisolation.spec.mjs
-tools/verify-package.mjs	tools/verify-package.mjs
+tools/verify-package.mjs	tools/verify-package.mjs spec/verifypackage-registry.spec.mjs spec/verifypackage-lifecycle.spec.mjs
+spec/verifypackage-registry.spec.mjs	spec/verifypackage-registry.spec.mjs
+spec/verifypackage-lifecycle.spec.mjs	spec/verifypackage-lifecycle.spec.mjs
 tools/fast-gate.sh	tools/fast-gate.test.sh tools/verify-package.mjs
 tools/fast-gate.test.sh	tools/fast-gate.test.sh
 tools/full-gate.sh	tools/fast-gate.test.sh tools/verify-package.mjs

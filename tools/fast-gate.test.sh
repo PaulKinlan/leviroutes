@@ -494,14 +494,12 @@ const pkg = {
   type: "module",
   main: "./src/routes.js",
   module: "./src/routes.js",
-  browser: "./dist/routes.min.js",
-  exports: { ".": { browser: "./dist/routes.min.js", import: "./src/routes.js" } },
+  browser: "./src/routes.js",
+  exports: { ".": { browser: "./src/routes.js", import: "./src/routes.js" } },
   scripts: {
     test: "jasmine",
     "verify:package": "node tools/verify-package.mjs",
-    build: "npm run build:min",
-    "build:min": "terser src/routes.js -o dist/routes.min.js -c -m --comments false",
-    prepublishOnly: "npm test && npm run verify:package && npm run build"
+    prepublishOnly: "npm test && npm run verify:package"
   }
 };
 if (rootEntry.dependencies) pkg.dependencies = rootEntry.dependencies;
@@ -578,24 +576,24 @@ function reset() {
   reset();
 }
 
-// 17d. poisoned build:min is rejected BEFORE command execution (no side-effect file created)
+// 17d. a reintroduced build script is rejected BEFORE any execution (no side-effect file created)
 {
   const pwnedFile = path.join(fixture, "pwned");
   if (fs.existsSync(pwnedFile)) fs.unlinkSync(pwnedFile);
   const p = JSON.parse(basePkgContent);
-  p.scripts["verify:package"] = "node tools/verify-package.mjs";
-  p.scripts["build:min"] = "touch pwned && terser src/routes.js -o dist/routes.min.js -c -m --comments false";
+  p.scripts.build = "npm run build:min";
+  p.scripts["build:min"] = "touch pwned";
   fs.writeFileSync(pkgPath, JSON.stringify(p));
   const res = await verifyPackage(fixture, { exitOnError: false });
-  if (!res.ok && res.error.includes("scripts[\"build:min\"] must be exactly \"terser")) {
-    emit("ok", "17d verify-package rejects modified build:min");
+  if (!res.ok && res.error.includes("must not define build scripts")) {
+    emit("ok", "17d verify-package rejects a reintroduced build script");
   } else {
-    emit("bad", "17d verify-package rejects modified build:min", `got: ${JSON.stringify(res)}`);
+    emit("bad", "17d verify-package rejects a reintroduced build script", `got: ${JSON.stringify(res)}`);
   }
   if (!fs.existsSync(pwnedFile)) {
-    emit("ok", "17d2 verify-package validates build:min BEFORE command execution");
+    emit("ok", "17d2 verify-package validates build scripts BEFORE command execution");
   } else {
-    emit("bad", "17d2 verify-package validates build:min BEFORE command execution", "pwned file created");
+    emit("bad", "17d2 verify-package validates build scripts BEFORE command execution", "pwned file created");
     fs.unlinkSync(pwnedFile);
   }
   reset();
@@ -618,7 +616,7 @@ function reset() {
 // 17f. prepublishOnly shell metacharacters (; | &) are rejected
 {
   const p = JSON.parse(basePkgContent);
-  p.scripts.prepublishOnly = "npm test ; npm run verify:package ; npm run build";
+  p.scripts.prepublishOnly = "npm test ; npm run verify:package";
   fs.writeFileSync(pkgPath, JSON.stringify(p));
   const res = await verifyPackage(fixture, { exitOnError: false });
   if (!res.ok && res.error.includes("forbidden shell metacharacters")) {
@@ -629,16 +627,16 @@ function reset() {
   reset();
 }
 
-// 17g. prepublishOnly missing build leg is rejected
+// 17g. prepublishOnly carrying a build leg is rejected as an unallowlisted segment
 {
   const p = JSON.parse(basePkgContent);
-  p.scripts.prepublishOnly = "npm test && npm run verify:package";
+  p.scripts.prepublishOnly = "npm test && npm run verify:package && npm run build";
   fs.writeFileSync(pkgPath, JSON.stringify(p));
   const res = await verifyPackage(fixture, { exitOnError: false });
-  if (!res.ok && res.error.includes("must strictly chain test, verify:package, and build commands in order")) {
-    emit("ok", "17g verify-package rejects prepublishOnly missing build leg");
+  if (!res.ok && res.error.includes("unallowlisted command segment: npm run build")) {
+    emit("ok", "17g verify-package rejects a build command in the prepublishOnly chain");
   } else {
-    emit("bad", "17g verify-package rejects prepublishOnly missing build leg", `got: ${JSON.stringify(res)}`);
+    emit("bad", "17g verify-package rejects a build command in the prepublishOnly chain", `got: ${JSON.stringify(res)}`);
   }
   reset();
 }
@@ -660,17 +658,15 @@ function reset() {
 
 // 17i. Jasmine loads .mjs and .js before .json from spec/support
 {
-  const distFile = path.join(fixture, "dist/routes.min.js");
   for (const config of ["spec/support/jasmine.mjs", "spec/support/jasmine.js", "jasmine.mjs", "jasmine.js"]) {
     const configPath = path.join(fixture, config);
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
     fs.writeFileSync(configPath, "export default { spec_dir: \"spec\", spec_files: [\"routeparsing.spec.mjs\"] };\n");
-    if (fs.existsSync(distFile)) fs.unlinkSync(distFile);
     const res = await verifyPackage(fixture, { exitOnError: false });
-    if (!res.ok && res.error.includes(`unexpected Jasmine config ${config}`) && !fs.existsSync(distFile)) {
-      emit("ok", `17i verify-package rejects ${config} before build`);
+    if (!res.ok && res.error.includes(`unexpected Jasmine config ${config}`)) {
+      emit("ok", `17i verify-package rejects ${config}`);
     } else {
-      emit("bad", `17i verify-package accepted ${config} or built before rejecting it`, `res=${JSON.stringify(res)}`);
+      emit("bad", `17i verify-package accepted ${config}`, `res=${JSON.stringify(res)}`);
     }
     fs.unlinkSync(configPath);
   }
@@ -747,10 +743,10 @@ function reset() {
 // 17o. in-sync dependency bump passes static parity validation without cold-start build penalty
 {
   const p = JSON.parse(basePkgContent);
-  p.devDependencies.terser = ">=5.0.0";
+  p.devDependencies["left-pad"] = "1.3.0";
   fs.writeFileSync(pkgPath, JSON.stringify(p, null, 2));
   const l = JSON.parse(baseLockContent);
-  l.packages[""].devDependencies.terser = ">=5.0.0";
+  l.packages[""]["devDependencies"]["left-pad"] = "1.3.0";
   fs.writeFileSync(lockPath, JSON.stringify(l, null, 2));
   const res = await verifyPackage(fixture, { exitOnError: false, skipExecution: true });
   if (res.ok && res.output.includes("verify-package: PASS")) {
