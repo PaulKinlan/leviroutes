@@ -246,6 +246,13 @@ const routes = function(options) {
         } catch (err) { /* an unparseable URL simply has no values */ }
       }
 
+      // req.url is the URL as the caller supplied it: a Fetch Request keeps its
+      // absolute URL (origin and query included), an http.IncomingMessage its
+      // origin-form path + query, and a URL string stays exactly as passed. Only
+      // MATCHING is reduced to the pathname (pathnameOf() above), so a route says
+      // nothing about the host a request arrived on: a handler that cares about the
+      // origin, the query or the scheme must read req.url / req.values itself, and a
+      // handler that renders req.url must treat it as untrusted (leviroutes-evd).
       var req = {"url": url, "params": params, "values" : values, "e": e};
       if(server) {
         req.method = server.method;
@@ -302,7 +309,11 @@ const routes = function(options) {
   // Fetch Request, or a plain URL string through the same route table the
   // browser uses. Matching honours the method each route was registered with
   // (get/post), unlike the browser paths which stay method-agnostic for
-  // backwards compatibility. Returns true when a route matches, unless server
+  // backwards compatibility, and matches the PATHNAME only: an absolute URL (a form
+  // action resolved by the browser, a Fetch Request) is reduced with pathnameOf(),
+  // so the origin is never part of the match and is never validated here - a handler
+  // that acts on the host must check it itself (leviroutes-evd).
+  // Returns true when a route matches, unless server
   // middleware explicitly calls next.abort() before returning without
   // committing the response; the caller can then send its own fallback. If the
   // route handler has already executed, dispatch() returns true even if

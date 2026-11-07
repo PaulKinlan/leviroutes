@@ -1,6 +1,6 @@
 {
   "name": "leviroutes",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "A simple lightweight routes framework for hooking in to HTML5 history",
   "type": "module",
   "main": "./src/routes.js",
@@ -45,6 +45,7 @@
   "files": [
     "src/",
     "README.md",
+    "CHANGELOG.md",
     "LICENCE"
   ]
 }
