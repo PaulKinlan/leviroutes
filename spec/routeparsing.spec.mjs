@@ -185,11 +185,35 @@ describe("route parsing", function() {
     expect(function() {
       r.get("/x/((a)+)+b", function(){});
     }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:ids((\\d+|x)+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
   });
 
-  it("should accept quantifiers with character classes containing plus or asterisk without false rejection", function() {
+  it("should accept linear non-catastrophic custom patterns without false rejection", function() {
+    var r1 = new routes();
+    r1.get("/:id(\\d+(?:-\\d+)?)", function(){});
+    expect(r1.getRoutes()[0].regex.regexp).toEqual(/^(?:\/(\d+(?:-\d+)?))$/);
+
+    var r2 = new routes();
+    r2.get("/:id(\\d+(-\\d+)?)", function(){});
+    expect(r2.getRoutes()[0].regex.regexp).toEqual(/^(?:\/(\d+(-\d+)?))$/);
+
     var r3 = new routes();
-    r3.get("/x/(a[+]b)+", function(){});
-    expect(r3.getRoutes()[0].regex.regexp).toEqual(/^(?:\/x\/(a[+]b)+)$/);
+    r3.get("/:id([a-z]+(?:\\.[a-z]+)?)", function(){});
+    expect(r3.getRoutes()[0].regex.regexp).toEqual(/^(?:\/([a-z]+(?:\.[a-z]+)?))$/);
+
+    var r4 = new routes();
+    r4.get("/:id((a+)?)", function(){});
+    expect(r4.getRoutes()[0].regex.regexp).toEqual(/^(?:\/((a+)?))$/);
+
+    var r5 = new routes();
+    r5.get("/:x((?:a))+", function(){});
+    expect(r5.getRoutes()[0].regex.regexp).toEqual(/^(?:\/((?:a))+)$/);
+
+    var r6 = new routes();
+    r6.get("/x/(a[+]b)+", function(){});
+    expect(r6.getRoutes()[0].regex.regexp).toEqual(/^(?:\/x\/(a[+]b)+)$/);
   });
 });

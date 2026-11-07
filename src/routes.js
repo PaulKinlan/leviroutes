@@ -31,9 +31,45 @@ const routes = function(options) {
   var MAX_PATTERN_LENGTH = 2048;
   var MAX_PATH_LENGTH = 4096;
 
+  // Parse quantifier token at startIdx in pattern: returns { isRepetition, end } or null.
+  // Repetition quantifiers (+, *, {n,m} where max > 1) can repeat multiple times.
+  // Optional quantifiers (?, {0,1}, {1}) match at most once and cannot cause exponential loops.
+  // Group prefixes like '(?' are syntax, not quantifiers.
+  var parseQuantifierToken = function(pattern, startIdx) {
+    var c = pattern[startIdx];
+    if (c === "+" || c === "*") {
+      var end = startIdx;
+      if (pattern[end + 1] === "?") end++;
+      return { isRepetition: true, end: end };
+    }
+    if (c === "?") {
+      if (startIdx > 0 && pattern[startIdx - 1] === "(") {
+        return null;
+      }
+      var end = startIdx;
+      if (pattern[end + 1] === "?") end++;
+      return { isRepetition: false, end: end };
+    }
+    if (c === "{") {
+      var closeBrace = pattern.indexOf("}", startIdx);
+      if (closeBrace !== -1) {
+        var inner = pattern.slice(startIdx + 1, closeBrace);
+        var m = /^(\d+)(?:,(\d*))?$/.exec(inner);
+        if (m) {
+          var min = parseInt(m[1], 10);
+          var max = m[2] === undefined ? min : (m[2] === "" ? Infinity : parseInt(m[2], 10));
+          var end = closeBrace;
+          if (pattern[end + 1] === "?") end++;
+          return { isRepetition: max > 1, end: end };
+        }
+      }
+    }
+    return null;
+  };
+
   // Parse-aware helper to detect nested quantifiers like (a+)+, ((a+))+, (a{1,})+, or (a+){2,}
   // that trigger catastrophic backtracking in regular expressions (tm-unbounded-pattern-eval-on-untrusted-path,
-  // leviroutes-njt, leviroutes-39k).
+  // leviroutes-njt, leviroutes-39k, leviroutes-1hs, leviroutes-vsu).
   var hasNestedQuantifiers = function(pattern) {
     var stack = [];
     var inCharClass = false;
@@ -58,60 +94,34 @@ const routes = function(options) {
         continue;
       }
       if (c === "(") {
-        stack.push({ hasQuantifier: false });
+        stack.push({ hasRepetition: false });
         continue;
       }
       if (c === ")") {
-        var frame = stack.pop() || { hasQuantifier: false };
-        var isQuantified = false;
-        var nextIdx = i + 1;
-        var nextChar = pattern[nextIdx];
-        if (nextChar === "+" || nextChar === "*" || nextChar === "?") {
-          isQuantified = true;
-          i++;
-          if (pattern[i + 1] === "?") i++;
-        } else if (nextChar === "{") {
-          var closeBrace = pattern.indexOf("}", nextIdx);
-          if (closeBrace !== -1) {
-            var innerBrace = pattern.slice(nextIdx + 1, closeBrace);
-            if (/^\d+,?\d*$/.test(innerBrace)) {
-              isQuantified = true;
-              i = closeBrace;
-              if (pattern[i + 1] === "?") i++;
+        var frame = stack.pop() || { hasRepetition: false };
+        var q = parseQuantifierToken(pattern, i + 1);
+        if (q) {
+          if (q.isRepetition) {
+            if (frame.hasRepetition) {
+              return true;
+            }
+            if (stack.length > 0) {
+              stack[stack.length - 1].hasRepetition = true;
             }
           }
-        }
-
-        if (isQuantified) {
-          if (frame.hasQuantifier) {
-            return true;
-          }
-          if (stack.length > 0) {
-            stack[stack.length - 1].hasQuantifier = true;
-          }
-        } else if (frame.hasQuantifier && stack.length > 0) {
-          stack[stack.length - 1].hasQuantifier = true;
+          i = q.end;
+        } else if (frame.hasRepetition && stack.length > 0) {
+          stack[stack.length - 1].hasRepetition = true;
         }
         continue;
       }
 
-      if (c === "+" || c === "*" || c === "?") {
-        if (stack.length > 0) {
-          stack[stack.length - 1].hasQuantifier = true;
+      var token = parseQuantifierToken(pattern, i);
+      if (token) {
+        if (token.isRepetition && stack.length > 0) {
+          stack[stack.length - 1].hasRepetition = true;
         }
-        if (pattern[i + 1] === "?") i++;
-      } else if (c === "{") {
-        var closeBrace = pattern.indexOf("}", i);
-        if (closeBrace !== -1) {
-          var innerBrace = pattern.slice(i + 1, closeBrace);
-          if (/^\d+,?\d*$/.test(innerBrace)) {
-            if (stack.length > 0) {
-              stack[stack.length - 1].hasQuantifier = true;
-            }
-            i = closeBrace;
-            if (pattern[i + 1] === "?") i++;
-          }
-        }
+        i = token.end;
       }
     }
 
