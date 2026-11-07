@@ -72,11 +72,24 @@ describe("verify-package registry pinning", function() {
   });
 
   it("rejects every truthy ignore-scripts spelling npm honours", async function() {
-    // npm coerces booleans case-insensitively across true/t/yes/y/1/on and
-    // quoted forms (leviroutes-mwg repro B: each skips prepublishOnly).
-    for (const spelling of ["1", "TRUE", "Yes", "on", "t", "y", "\"true\"", "'on'"]) {
+    // Measured against npm 11.19.1 / node 24.22.0 with a prepublishOnly marker and
+    // 'npm publish --dry-run': every spelling below SKIPS the lifecycle, so the gate
+    // must reject it. The list is npm's rule (nopt validateBoolean: numeric ->
+    // Boolean(Number(v)), false only for 'false'/'null', everything else true, and a
+    // bare or empty key is true) rather than a blacklist of famous spellings
+    // (leviroutes-rje, refining leviroutes-mwg).
+    const bypasses = [
+      "1", "TRUE", "Yes", "on", "t", "y", "'on'", "\"true\"",
+      "no", "No", "off", "OFF", "FALSE", "f", "F", "n", "N",
+      "2", "0x1", "1.0", "tru e", "\"\"",
+      "", "ignore-scripts", "ignore-scripts  =  true"
+    ];
+    for (const spelling of bypasses) {
       fs.writeFileSync(path.join(root, "package.json"), PKG);
-      fs.writeFileSync(path.join(root, ".npmrc"), `ignore-scripts=${spelling}\n`);
+      // A spellings list entry that is itself a full line covers the bare key, the
+      // empty value and the spaced '=' forms; the rest are values.
+      const line = spelling.startsWith("ignore-scripts") ? spelling : `ignore-scripts=${spelling}`;
+      fs.writeFileSync(path.join(root, ".npmrc"), `${line}\n`);
 
       const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
 
@@ -85,8 +98,11 @@ describe("verify-package registry pinning", function() {
     }
   });
 
-  it("accepts falsy ignore-scripts spellings that keep the lifecycle enabled", async function() {
-    for (const spelling of ["false", "0", "no", "off", "FALSE"]) {
+  it("accepts the falsy ignore-scripts spellings that keep the lifecycle enabled", async function() {
+    // Also measured: these RUN the lifecycle, so rejecting them would be a false
+    // alarm on a safe config (npm's numeric rule makes '0', '0.0' and '00' false, and
+    // ini drops the trailing comment, so 'false # explain' is still false).
+    for (const spelling of ["false", "0", "0.0", "00", "\"false\"", "null", "false # keep scripts"]) {
       fs.writeFileSync(path.join(root, "package.json"), PKG);
       fs.writeFileSync(path.join(root, ".npmrc"), `ignore-scripts=${spelling}\n`);
 
