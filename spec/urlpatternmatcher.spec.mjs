@@ -72,6 +72,16 @@ describe("urlpattern matcher (opt-in)", function() {
     expect(paramsFor("/files{/:id}?", "/files/7", { matcher: "urlpattern" })).toEqual({ id: "7" });
   });
 
+  it("registers a linear nested custom group in the urlpattern matcher too", function() {
+    if (!supported) return pending("URLPattern is not available in this environment");
+    // leviroutes-omc1: the nested-quantifier guard is shared by both matchers, so the
+    // linear delimiter-separated repeat it used to refuse must register here as well.
+    // Non-capturing wrappers only: URLPattern itself refuses a repeated group that holds
+    // a capturing group, which is a separate engine limitation from this guard.
+    expect(paramsFor("/list/:items((?:(?:\\d+,))*)", "/list/1,2,3,", { matcher: "urlpattern" }))
+      .toEqual({ items: "1,2,3," });
+  });
+
   it("names the route when a regex-flavoured route cannot be a URL pattern", function() {
     if (!supported) return pending("URLPattern is not available in this environment");
     var app = new routes({ matcher: "urlpattern" });
@@ -147,5 +157,63 @@ describe("urlpattern matcher (opt-in)", function() {
     expect(paramsFor("/a b", "/a%20b", { matcher: "urlpattern" })).not.toEqual("none");
     expect(paramsFor("/a b", "/a%20b")).toEqual("none");
     expect(paramsFor("/a%20b", "/a%20b")).not.toEqual("none");
+  });
+
+  it("rejects route patterns exceeding maximum length in urlpattern matcher", function() {
+    if (!supported) return pending("URLPattern is not available in this environment");
+    var app = new routes({ matcher: "urlpattern" });
+    var longPattern = "/" + "a".repeat(2049);
+    expect(function() {
+      app.get(longPattern, function(){});
+    }).toThrowError(/route pattern exceeds maximum length of 2048 characters/);
+  });
+
+  it("rejects lookaround assertions in URLPattern custom regex groups due to lack of cross-engine parity", function() {
+    if (!supported) return pending("URLPattern is not available in this environment");
+    var app = new routes({ matcher: "urlpattern" });
+
+    expect(function() {
+      app.get("/items/:id((?=foo))", function(){});
+    }).toThrowError(/uses lookaround assertion in custom regex group which lacks cross-engine parity/);
+
+    expect(function() {
+      app.get("/items/:id((?!bar))", function(){});
+    }).toThrowError(/uses lookaround assertion in custom regex group which lacks cross-engine parity/);
+
+    expect(function() {
+      app.get("/items/((?<=foo))", function(){});
+    }).toThrowError(/uses lookaround assertion in custom regex group which lacks cross-engine parity/);
+
+    expect(function() {
+      app.get("/items/((?<!foo))", function(){});
+    }).toThrowError(/uses lookaround assertion in custom regex group which lacks cross-engine parity/);
+  });
+
+  it("rejects invalid regex syntax in URLPattern custom regex groups", function() {
+    if (!supported) return pending("URLPattern is not available in this environment");
+    var app = new routes({ matcher: "urlpattern" });
+
+    expect(function() {
+      app.get("/items/:id(+foo)", function(){});
+    }).toThrowError(/is not a valid regular expression/);
+
+    expect(function() {
+      app.get("/items/:id([0-9+)", function(){});
+    }).toThrowError(/contains unclosed '\(' in custom regex group/);
+
+    expect(function() {
+      app.get("/items/:id((a+)+b)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+  });
+
+  it("does not match paths exceeding MAX_PATH_LENGTH in urlpattern matcher", function() {
+    if (!supported) return pending("URLPattern is not available in this environment");
+    var app = new routes({ matcher: "urlpattern" });
+    var matched = false;
+    app.get("/items/:id", function() { matched = true; });
+
+    var longPath = "/items/" + "a".repeat(5000);
+    app.test(longPath);
+    expect(matched).toEqual(false);
   });
 });

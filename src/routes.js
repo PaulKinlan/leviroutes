@@ -26,14 +26,963 @@ const routes = function(options) {
   // Reserved TLD: matching never looks at the host in this mode, so this cannot collide.
   var URLPATTERN_ORIGIN = "http://leviroutes.invalid";
 
-  // Bound the number of distinct keys stored in req.values (leviroutes-ghj)
+  // Maximum lengths to bound route pattern compilation and path evaluation
+  // against ReDoS or unbounded input attacks (tm-unbounded-pattern-eval-on-untrusted-path).
+  var MAX_PATTERN_LENGTH = 2048;
+  var MAX_PATH_LENGTH = 4096;
   var MAX_VALUES_COUNT = 1024;
+
+  // Parse quantifier token at startIdx in pattern: returns { isRepetition, isNullable, isVariable, end } or null.
+  // Repetition quantifiers (+, *, {n,m} where max > 1) can repeat multiple times.
+  // Fixed quantifiers ({1}, {2} where min === max) match a fixed number of times and cannot cause variable ambiguity.
+  // Optional quantifiers (?, {0,1}) match at most once.
+  // Group prefixes like '(?' are syntax, not quantifiers.
+  var parseQuantifierToken = function(pattern, startIdx) {
+    if (startIdx >= pattern.length) return null;
+    var c = pattern[startIdx];
+    if (c === "+" || c === "*") {
+      var end = startIdx;
+      if (pattern[end + 1] === "?") end++;
+      return { isRepetition: true, isNullable: c === "*", isVariable: true, max: Infinity, end: end };
+    }
+    if (c === "?") {
+      if (startIdx > 0 && pattern[startIdx - 1] === "(") {
+        return null;
+      }
+      var end = startIdx;
+      if (pattern[end + 1] === "?") end++;
+      return { isRepetition: false, isNullable: true, isVariable: true, max: 1, end: end };
+    }
+    if (c === "{") {
+      var closeBrace = pattern.indexOf("}", startIdx);
+      if (closeBrace !== -1) {
+        var inner = pattern.slice(startIdx + 1, closeBrace);
+        var m = /^(\d+)(?:,(\d*))?$/.exec(inner);
+        if (m) {
+          var min = parseInt(m[1], 10);
+          var max = m[2] === undefined ? min : (m[2] === "" ? Infinity : parseInt(m[2], 10));
+          var end = closeBrace;
+          if (pattern[end + 1] === "?") end++;
+          var isVariable = (max === Infinity || max > min);
+          var isRepetition = (max === Infinity || max > 1) && isVariable;
+          return { isRepetition: isRepetition, isNullable: min === 0, isVariable: isVariable, min: min, max: max, end: end };
+        }
+      }
+    }
+    return null;
+  };
+
+  var normalizeEscapes = function(str) {
+    return str.replace(/\\x([0-9a-fA-F]{2})/g, function(_, h) { return String.fromCharCode(parseInt(h, 16)); })
+              .replace(/\\u([0-9a-fA-F]{4})/g, function(_, h) { return String.fromCharCode(parseInt(h, 16)); });
+  };
+
+  var extractLiteralPrefix = function(branch) {
+    var res = "";
+    var i = 0;
+    while (i < branch.length) {
+      if (branch.slice(i, i + 3) === "(?:") {
+        var close = branch.indexOf(")", i + 3);
+        if (close !== -1) {
+          var inner = branch.slice(i + 3, close);
+          if (inner.indexOf("|") !== -1) break;
+          var qMatch = /^\{(\d+)\}/.exec(branch.slice(close + 1));
+          if (qMatch) {
+            var count = parseInt(qMatch[1], 10);
+            var innerPrefix = extractLiteralPrefix(inner);
+            res += innerPrefix.repeat(Math.min(count, 100));
+            i = close + 1 + qMatch[0].length;
+            continue;
+          } else if (!/[?*+{]/.test(branch[close + 1] || "")) {
+            res += extractLiteralPrefix(inner);
+            i = close + 1;
+            continue;
+          } else {
+            break;
+          }
+        }
+      }
+      if (branch[i] === "(") {
+        var close = branch.indexOf(")", i + 1);
+        if (close !== -1) {
+          var inner = branch.slice(i + 1, close);
+          if (inner.indexOf("|") !== -1) break;
+          var qMatch = /^\{(\d+)\}/.exec(branch.slice(close + 1));
+          if (qMatch) {
+            var count = parseInt(qMatch[1], 10);
+            var innerPrefix = extractLiteralPrefix(inner);
+            res += innerPrefix.repeat(Math.min(count, 100));
+            i = close + 1 + qMatch[0].length;
+            continue;
+          } else if (!/[?*+{]/.test(branch[close + 1] || "")) {
+            res += extractLiteralPrefix(inner);
+            i = close + 1;
+            continue;
+          } else {
+            break;
+          }
+        }
+      }
+      if (branch[i] === "\\") {
+        if (i + 1 < branch.length) {
+          var esc = branch[i + 1];
+          if (/[dswDSWbB]/.test(esc)) break;
+          if (i + 2 < branch.length && /[?*+{]/.test(branch[i + 2])) break;
+          res += esc;
+          i += 2;
+          continue;
+        }
+      }
+      if (/[\[\(\{\+\*\?\|\$\^\.]/.test(branch[i])) break;
+      if (i + 1 < branch.length && /[?*+{]/.test(branch[i + 1])) break;
+      res += branch[i];
+      i++;
+    }
+    return res;
+  };
+
+  var firstAtom = function(pattern) {
+    if (pattern.slice(0, 3) === "(?:") {
+      return firstAtom(pattern.slice(3));
+    }
+    if (pattern[0] === "(") {
+      return firstAtom(pattern.slice(1));
+    }
+    if (pattern[0] === "\\") {
+      return pattern.slice(0, 2);
+    }
+    if (pattern[0] === "[") {
+      var close = pattern.indexOf("]");
+      return pattern.slice(0, close + 1);
+    }
+    return pattern[0];
+  };
+
+  var branchLength = function(b) {
+    var len = 0;
+    var variable = false;
+    var i = 0;
+    while (i < b.length) {
+      var c = b[i];
+      var atomLen = 1;
+      var atomVar = false;
+      if (c === "\\") {
+        i += 2;
+      } else if (c === "[") {
+        var close = b.indexOf("]", i);
+        i = close + 1;
+      } else if (c === "(") {
+        if (b.slice(i, i + 3) === "(?:") i += 3;
+        else i += 1;
+        var depth = 1;
+        var start = i;
+        while (i < b.length && depth > 0) {
+          if (b[i] === "\\") i += 2;
+          else if (b[i] === "(") { depth++; i++; }
+          else if (b[i] === ")") { depth--; i++; }
+          else i++;
+        }
+        var inner = b.slice(start, i - 1);
+        var innerRes = branchLength(inner);
+        atomLen = innerRes.len;
+        atomVar = innerRes.variable;
+      } else {
+        i++;
+      }
+
+      if (i < b.length) {
+        if (b[i] === "+" || b[i] === "*") {
+          atomVar = true;
+          atomLen = 0;
+          i++;
+        } else if (b[i] === "?") {
+          atomVar = true;
+          i++;
+        } else if (b[i] === "{") {
+          var closeBrace = b.indexOf("}", i);
+          var m = /^\{(\d+)(?:,(\d*))?\}/.exec(b.slice(i, closeBrace + 1));
+          if (m) {
+            var min = parseInt(m[1], 10);
+            var max = m[2] === undefined ? min : (m[2] === "" ? Infinity : parseInt(m[2], 10));
+            if (max !== min) {
+              atomVar = true;
+            }
+            atomLen = atomLen * min;
+          }
+          i = closeBrace + 1;
+        }
+      }
+
+      if (atomVar) variable = true;
+      len += atomLen;
+    }
+    return { len: len, variable: variable };
+  };
+
+  var atomsOverlap = function(a1, a2) {
+    var r1 = new RegExp("^(?:" + a1 + ")$");
+    var r2 = new RegExp("^(?:" + a2 + ")$");
+    for (var code = 0; code < 128; code++) {
+      var ch = String.fromCharCode(code);
+      if (r1.test(ch) && r2.test(ch)) return true;
+    }
+    return false;
+  };
+
+  var expandAtoms = function(b) {
+    var atoms = [];
+    var i = 0;
+    while (i < b.length) {
+      var c = b[i];
+      var atom = "";
+      if (c === "\\") {
+        atom = b.slice(i, i + 2);
+        i += 2;
+      } else if (c === "[") {
+        var close = b.indexOf("]", i);
+        atom = b.slice(i, close + 1);
+        i = close + 1;
+      } else if (c === "(") {
+        if (b.slice(i, i + 3) === "(?:") i += 3;
+        else i += 1;
+        var depth = 1;
+        var start = i;
+        while (i < b.length && depth > 0) {
+          if (b[i] === "\\") i += 2;
+          else if (b[i] === "(") { depth++; i++; }
+          else if (b[i] === ")") { depth--; i++; }
+          else i++;
+        }
+        var inner = b.slice(start, i - 1);
+        if (inner.indexOf("|") !== -1) {
+          return null;
+        }
+        var innerAtoms = expandAtoms(inner);
+        if (!innerAtoms) return null;
+        var count = 1;
+        if (i < b.length && b[i] === "{") {
+          var closeBrace = b.indexOf("}", i);
+          var m = /^\{(\d+)\}/.exec(b.slice(i, closeBrace + 1));
+          if (m) {
+            count = parseInt(m[1], 10);
+            i = closeBrace + 1;
+          }
+        }
+        for (var rep = 0; rep < count; rep++) {
+          atoms.push.apply(atoms, innerAtoms);
+        }
+        continue;
+      } else {
+        if (/[?*+]/.test(c)) return null;
+        atom = c;
+        i++;
+      }
+
+      var count = 1;
+      if (i < b.length && b[i] === "{") {
+        var closeBrace = b.indexOf("}", i);
+        var m = /^\{(\d+)(?:,(\d*))?\}/.exec(b.slice(i, closeBrace + 1));
+        if (m) {
+          var min = parseInt(m[1], 10);
+          var max = m[2] === undefined ? min : (m[2] === "" ? Infinity : parseInt(m[2], 10));
+          if (max !== min) return null;
+          count = min;
+          i = closeBrace + 1;
+        }
+      }
+      for (var rep = 0; rep < count; rep++) {
+        atoms.push(atom);
+      }
+    }
+    return atoms;
+  };
+
+  var checkFixedBranches = function(b1, b2) {
+    var a1 = expandAtoms(b1);
+    var a2 = expandAtoms(b2);
+    if (!a1 || !a2) return null;
+
+    var minLen = Math.min(a1.length, a2.length);
+    for (var k = 0; k < minLen; k++) {
+      if (!atomsOverlap(a1[k], a2[k])) {
+        return false;
+      }
+    }
+
+    if (a1.length === a2.length) {
+      return true;
+    }
+
+    var shortAtoms = a1.length < a2.length ? a1 : a2;
+    var longAtoms = a1.length < a2.length ? a2 : a1;
+    var nextExpectedInLong = longAtoms[shortAtoms.length];
+
+    if (atomsOverlap(a1[0], nextExpectedInLong) || atomsOverlap(a2[0], nextExpectedInLong)) {
+      return true;
+    }
+
+    return false;
+  };
+
+  var branchesOverlap = function(b1, b2) {
+    b1 = normalizeEscapes(b1);
+    b2 = normalizeEscapes(b2);
+
+    var r1, r2;
+    try {
+      r1 = new RegExp("^(?:" + b1 + ")$");
+      r2 = new RegExp("^(?:" + b2 + ")$");
+    } catch (e) {
+      return true;
+    }
+
+    if (r1.test("") || r2.test("")) return true;
+
+    var p1 = extractLiteralPrefix(b1);
+    var p2 = extractLiteralPrefix(b2);
+
+    if (p1.length > 0 && p2.length > 0) {
+      if (p1.indexOf(p2) === 0 || p2.indexOf(p1) === 0) {
+        return true;
+      }
+      return false;
+    }
+
+    if (p1.length > 0) {
+      try {
+        if (new RegExp("^(?:" + b2 + ")").test(p1)) return true;
+      } catch (e) {}
+    }
+    if (p2.length > 0) {
+      try {
+        if (new RegExp("^(?:" + b1 + ")").test(p2)) return true;
+      } catch (e) {}
+    }
+
+    var fixedRes = checkFixedBranches(b1, b2);
+    if (fixedRes !== null) {
+      return fixedRes;
+    }
+
+    for (var code = 0; code < 128; code++) {
+      var ch = String.fromCharCode(code);
+      try {
+        if (r1.test(ch) && r2.test(ch)) {
+          return true;
+        }
+      } catch (e) {}
+    }
+
+    var a1 = firstAtom(b1);
+    var a2 = firstAtom(b2);
+    var fa1, fa2;
+    try {
+      fa1 = new RegExp("^(?:" + a1 + ")$");
+      fa2 = new RegExp("^(?:" + a2 + ")$");
+    } catch (e) {
+      return true;
+    }
+
+    var firstOverlap = false;
+    for (var code = 0; code < 128; code++) {
+      var ch = String.fromCharCode(code);
+      if (fa1.test(ch) && fa2.test(ch)) {
+        firstOverlap = true;
+        break;
+      }
+    }
+
+    if (!firstOverlap) {
+      return false;
+    }
+
+    var w1 = branchLength(b1);
+    var w2 = branchLength(b2);
+
+    if (w1.variable || w2.variable) {
+      return true;
+    }
+
+    if (w1.len !== w2.len) {
+      return true;
+    }
+
+    for (var code = 0; code < 128; code++) {
+      var ch = String.fromCharCode(code);
+      var str = ch.repeat(w1.len);
+      if (r1.test(str) && r2.test(str)) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  // Parse-aware helper to detect nested quantifiers and overlapping repeated alternations
+  // that trigger catastrophic backtracking in regular expressions (tm-unbounded-pattern-eval-on-untrusted-path,
+  // leviroutes-njt, leviroutes-39k, leviroutes-1hs, leviroutes-vsu, leviroutes-8sb, leviroutes-aqt, leviroutes-0yz,
+  // leviroutes-a8b, leviroutes-l45, leviroutes-bwv, leviroutes-ur3, leviroutes-kyk, leviroutes-e4f).
+  var hasNestedQuantifiers = function(pattern) {
+    var newBranch = function(startIdx) {
+      return {
+        atoms: [],
+        startIdx: startIdx,
+        branchText: "",
+        hasInternalReDoS: false
+      };
+    };
+    var newFrame = function() {
+      return { branches: [newBranch(0)] };
+    };
+
+    // leviroutes-omc1: whether a repeated atom can split the same characters differently
+    // on each iteration is a property of the atom's CONTENT, not of its text. Comparing a
+    // group's text with itself is trivially true (the wrapper always overlaps the wrapper),
+    // which refused linear delimiter-separated repeats one nesting level deeper than the
+    // already-accepted single-group form: '((\d+,))*' threw while '(\d+,)*' registered.
+    // Each iteration of that outer repeat must consume a literal delimiter, so the inner
+    // group cannot re-partition anything - the same test the wrap-around arm applies to a
+    // frame's own atoms has to be applied inside the group instead of at its surface.
+    var reachesEndOfBranch = function(atoms, j) {
+      for (var t = j + 1; t < atoms.length; t++) {
+        if (!atoms[t].isNullable) return false;
+      }
+      return true;
+    };
+
+    var reachesStartOfBranch = function(atoms, k) {
+      for (var l = 0; l < k; l++) {
+        if (!atoms[l].isNullable) return false;
+      }
+      return true;
+    };
+
+    // Can this atom overlap itself across two iterations of a repetition? For a group
+    // atom, ask its own boundary atoms (first reachable atom vs last reachable atom);
+    // for a plain atom such as '\d+', the atom does overlap itself.
+    var atomSelfRepartitions = function(atom) {
+      if (atom.selfRepartition !== undefined) return atom.selfRepartition;
+
+      var result = false;
+      var frame = atom.frame;
+      if (frame) {
+        for (var bIdx = 0; bIdx < frame.branches.length && !result; bIdx++) {
+          var atoms = frame.branches[bIdx].atoms;
+          for (var j = 0; j < atoms.length && !result; j++) {
+            if (!reachesEndOfBranch(atoms, j)) continue;
+            for (var k = 0; k < atoms.length; k++) {
+              if (!reachesStartOfBranch(atoms, k)) continue;
+              if (!atoms[j].isRepetition && !atoms[k].isRepetition &&
+                  !atoms[j].isVariable && !atoms[k].isVariable) continue;
+              if (atomPairOverlaps(atoms[j], atoms[k])) {
+                result = true;
+                break;
+              }
+            }
+          }
+        }
+      } else {
+        result = branchesOverlap(atom.text, atom.text);
+      }
+
+      atom.selfRepartition = result;
+      return result;
+    };
+
+    var atomPairOverlaps = function(a, b) {
+      if (a === b) return atomSelfRepartitions(a);
+      return branchesOverlap(a.text, b.text);
+    };
+
+    var checkBranchConsecutiveNullable = function(branch) {
+      var consecutiveNullCount = 0;
+      var lastNullAtom = null;
+      for (var a = 0; a < branch.atoms.length; a++) {
+        var atom = branch.atoms[a];
+        if (atom.nullableCount > 0) {
+          if (lastNullAtom === null || branchesOverlap(lastNullAtom.text, atom.text)) {
+            consecutiveNullCount += atom.nullableCount;
+          } else {
+            consecutiveNullCount = atom.nullableCount;
+          }
+          lastNullAtom = atom;
+          if (consecutiveNullCount >= 8) {
+            return true;
+          }
+        } else {
+          consecutiveNullCount = 0;
+          lastNullAtom = null;
+        }
+      }
+      return false;
+    };
+
+    var stack = [];
+    var currentFrame = newFrame();
+    var inCharClass = false;
+    var escaped = false;
+    var atomStart = 0;
+
+    for (var i = 0; i < pattern.length; i++) {
+      var c = pattern[i];
+      if (escaped) {
+        escaped = false;
+        var curBranch = currentFrame.branches[currentFrame.branches.length - 1];
+        var q = parseQuantifierToken(pattern, i + 1);
+        var end = i;
+        var isRep = false;
+        var isNull = false;
+        if (q) {
+          isRep = q.isRepetition;
+          isNull = q.isNullable;
+          end = q.end;
+          i = q.end;
+        }
+        var nullCount = 0;
+        if (isNull) {
+          nullCount = (q && q.max !== undefined && q.max !== Infinity) ? q.max : 1;
+        }
+        curBranch.atoms.push({
+          text: pattern.slice(atomStart, end + 1),
+          isRepetition: isRep,
+          isNullable: isNull,
+          isVariable: q ? q.isVariable : false,
+          nullableCount: nullCount,
+          max: q ? q.max : 1
+        });
+        if (checkBranchConsecutiveNullable(curBranch)) return true;
+        continue;
+      }
+      if (c === "\\") {
+        escaped = true;
+        atomStart = i;
+        continue;
+      }
+      if (inCharClass) {
+        if (c === "]") {
+          inCharClass = false;
+          var curBranch = currentFrame.branches[currentFrame.branches.length - 1];
+          var q = parseQuantifierToken(pattern, i + 1);
+          var end = i;
+          var isRep = false;
+          var isNull = false;
+          if (q) {
+            isRep = q.isRepetition;
+            isNull = q.isNullable;
+            end = q.end;
+            i = q.end;
+          }
+          var nullCount = 0;
+          if (isNull) {
+            nullCount = (q && q.max !== undefined && q.max !== Infinity) ? q.max : 1;
+          }
+          curBranch.atoms.push({
+            text: pattern.slice(atomStart, end + 1),
+            isRepetition: isRep,
+            isNullable: isNull,
+            isVariable: q ? q.isVariable : false,
+            nullableCount: nullCount,
+            max: q ? q.max : 1
+          });
+          if (checkBranchConsecutiveNullable(curBranch)) return true;
+        }
+        continue;
+      }
+      if (c === "[") {
+        inCharClass = true;
+        atomStart = i;
+        continue;
+      }
+      if (c === "(") {
+        if (pattern.slice(i + 1, i + 3) === "?:") {
+          i += 2;
+        }
+        stack.push(currentFrame);
+        currentFrame = { branches: [newBranch(i + 1)] };
+        continue;
+      }
+      if (c === "|") {
+        var prevBranch = currentFrame.branches[currentFrame.branches.length - 1];
+        prevBranch.branchText = pattern.slice(prevBranch.startIdx, i);
+        currentFrame.branches.push(newBranch(i + 1));
+        continue;
+      }
+      if (c === ")") {
+        var lastBranch = currentFrame.branches[currentFrame.branches.length - 1];
+        lastBranch.branchText = pattern.slice(lastBranch.startIdx, i);
+
+        var finishedFrame = currentFrame;
+        currentFrame = stack.pop() || newFrame();
+        var currentBranch = currentFrame.branches[currentFrame.branches.length - 1];
+
+        // Check for overlapping alternations in finished frame
+        var hasOverlappingAlt = false;
+        if (finishedFrame.branches.length > 1) {
+          for (var j = 0; j < finishedFrame.branches.length; j++) {
+            for (var k = j + 1; k < finishedFrame.branches.length; k++) {
+              if (branchesOverlap(finishedFrame.branches[j].branchText, finishedFrame.branches[k].branchText)) {
+                hasOverlappingAlt = true;
+                break;
+              }
+            }
+            if (hasOverlappingAlt) break;
+          }
+        }
+
+        var anyBranchHasInternal = false;
+        for (var f = 0; f < finishedFrame.branches.length; f++) {
+          if (finishedFrame.branches[f].hasInternalReDoS) {
+            anyBranchHasInternal = true;
+            break;
+          }
+        }
+
+        if (hasOverlappingAlt || anyBranchHasInternal) {
+          currentBranch.hasInternalReDoS = true;
+        }
+
+        var q = parseQuantifierToken(pattern, i + 1);
+        var end = i;
+        var isRep = false;
+        var isNull = false;
+        if (q) {
+          isRep = q.isRepetition || (q.max !== undefined && q.max > 1);
+          isNull = q.isNullable;
+          end = q.end;
+          i = q.end;
+        }
+
+        var innerIsRep = false;
+        var innerIsNull = false;
+        var innerIsVariable = false;
+        var frameHasMultipleNullable = false;
+        var frameCanMatchEmpty = false;
+        var frameNullableCount = 0;
+        var frameHasRepetition = false;
+        var frameIsVariable = false;
+        var frameMinLen = Infinity;
+        var frameMaxLen = 0;
+
+        for (var bIdx = 0; bIdx < finishedFrame.branches.length; bIdx++) {
+          var fb = finishedFrame.branches[bIdx];
+          var fbAtoms = fb.atoms;
+          var branchNull = true;
+          var bNullCount = 0;
+          var bMin = 0;
+          var bMax = 0;
+          var bVar = false;
+          for (var a = 0; a < fbAtoms.length; a++) {
+            var at = fbAtoms[a];
+            bNullCount += at.nullableCount || 0;
+            if (at.isRepetition) frameHasRepetition = true;
+            if (at.isVariable) bVar = true;
+            if (at.isNullable) {
+              bMin += 0;
+            } else {
+              bMin += (at.min !== undefined ? at.min : 1);
+            }
+            if (at.max === undefined || at.max === Infinity) {
+              bMax = Infinity;
+              bVar = true;
+            } else {
+              bMax += at.max;
+            }
+            if (!at.isNullable) {
+              branchNull = false;
+            }
+          }
+          if (bMin !== bMax) bVar = true;
+          if (bVar) frameIsVariable = true;
+          frameMinLen = Math.min(frameMinLen, bMin);
+          frameMaxLen = Math.max(frameMaxLen, bMax);
+
+          if (branchNull) {
+            frameCanMatchEmpty = true;
+            if (fbAtoms.length >= 2) {
+              frameHasMultipleNullable = true;
+            }
+            frameNullableCount = Math.max(frameNullableCount, bNullCount);
+          }
+          for (var a = 0; a < fbAtoms.length; a++) {
+            if (fbAtoms[a].hasMultipleNullable) {
+              frameHasMultipleNullable = true;
+            }
+          }
+        }
+        if (frameMinLen !== frameMaxLen) frameIsVariable = true;
+        innerIsVariable = frameIsVariable;
+
+        var groupNullableCount = 0;
+        if (frameCanMatchEmpty) {
+          innerIsNull = true;
+          var repFactor = (q && q.max !== undefined && q.max !== Infinity) ? q.max : 1;
+          groupNullableCount = Math.max(1, frameNullableCount) * repFactor;
+          if (groupNullableCount >= 8) {
+            return true;
+          }
+        }
+
+        if (finishedFrame.branches.length === 1 && finishedFrame.branches[0].atoms.length === 1) {
+          var innerAtom = finishedFrame.branches[0].atoms[0];
+          if (innerAtom.isVariable && innerAtom.isRepetition) innerIsRep = true;
+          if (innerAtom.isNullable) innerIsNull = true;
+          if (innerAtom.isVariable) innerIsVariable = true;
+        }
+
+        if (isRep) {
+          if (anyBranchHasInternal) return true;
+          if (hasOverlappingAlt) return true;
+          var isNestedRep = innerIsRep && (q.isVariable || (q.max !== undefined && q.max >= 8));
+          if (isNestedRep) return true;
+          if (frameHasMultipleNullable) return true;
+
+          for (var bIdx = 0; bIdx < finishedFrame.branches.length; bIdx++) {
+            var branch = finishedFrame.branches[bIdx];
+            var atoms = branch.atoms;
+            if (atoms.length === 0) continue;
+
+            // Check intra-branch reachable overlaps
+            for (var j = 0; j < atoms.length; j++) {
+              for (var k = j + 1; k < atoms.length; k++) {
+                if (atoms[j].isRepetition || atoms[k].isRepetition || atoms[j].isVariable || atoms[k].isVariable) {
+                  var reachable = true;
+                  for (var mid = j + 1; mid < k; mid++) {
+                    if (!atoms[mid].isNullable) {
+                      reachable = false;
+                      break;
+                    }
+                  }
+                  if (reachable && branchesOverlap(atoms[j].text, atoms[k].text)) {
+                    if (!q.isVariable && q.max !== undefined && q.max < 8) {
+                      var jUnbounded = atoms[j].max === undefined || atoms[j].max === Infinity;
+                      var kUnbounded = atoms[k].max === undefined || atoms[k].max === Infinity;
+                      if (!jUnbounded && !kUnbounded) {
+                        continue;
+                      }
+                    }
+                    return true;
+                  }
+                }
+                if (!atoms[k].isNullable) break;
+              }
+            }
+
+            // Check wrap-around overlap across iterations
+            for (var j = 0; j < atoms.length; j++) {
+              var canReachEnd = true;
+              for (var trail = j + 1; trail < atoms.length; trail++) {
+                if (!atoms[trail].isNullable) {
+                  canReachEnd = false;
+                  break;
+                }
+              }
+              if (!canReachEnd) continue;
+
+              for (var k = 0; k < atoms.length; k++) {
+                var canReachFromStart = true;
+                for (var lead = 0; lead < k; lead++) {
+                  if (!atoms[lead].isNullable) {
+                    canReachFromStart = false;
+                    break;
+                  }
+                }
+                if (!canReachFromStart) continue;
+
+                if (j === k) {
+                  var allOtherNullable = true;
+                  for (var o = 0; o < atoms.length; o++) {
+                    if (o !== j && !atoms[o].isNullable) {
+                      allOtherNullable = false;
+                      break;
+                    }
+                  }
+                  if (!allOtherNullable) continue;
+                  if (!q.isVariable && q.max !== undefined && q.max < 8) {
+                    continue;
+                  }
+                }
+
+                if (atoms[j].isRepetition || atoms[k].isRepetition || atoms[j].isVariable || atoms[k].isVariable) {
+                  if (atomPairOverlaps(atoms[j], atoms[k])) {
+                    if (!q.isVariable && q.max !== undefined && q.max < 8) {
+                      var jUnbounded = atoms[j].max === undefined || atoms[j].max === Infinity;
+                      var kUnbounded = atoms[k].max === undefined || atoms[k].max === Infinity;
+                      if (!jUnbounded && !kUnbounded) {
+                        continue;
+                      }
+                    }
+                    return true;
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        var groupMax = 1;
+        if (q && q.max !== undefined) {
+          groupMax = (frameMaxLen === Infinity || q.max === Infinity) ? Infinity : frameMaxLen * q.max;
+        } else {
+          groupMax = frameMaxLen;
+        }
+        currentBranch.atoms.push({
+          text: pattern.slice(atomStart, end + 1),
+          frame: finishedFrame,
+          isRepetition: isRep || innerIsRep,
+          isNullable: isNull || innerIsNull,
+          isVariable: q ? q.isVariable : innerIsVariable,
+          hasMultipleNullable: frameHasMultipleNullable,
+          nullableCount: (isNull || innerIsNull) ? groupNullableCount : 0,
+          max: groupMax
+        });
+        if (checkBranchConsecutiveNullable(currentBranch)) return true;
+        continue;
+      }
+
+      atomStart = i;
+      var q = parseQuantifierToken(pattern, i + 1);
+      var end = i;
+      var isRep = false;
+      var isNull = false;
+      if (q) {
+        isRep = q.isRepetition;
+        isNull = q.isNullable;
+        end = q.end;
+        i = q.end;
+      }
+      var nullCount = 0;
+      if (isNull) {
+        nullCount = (q && q.max !== undefined && q.max !== Infinity) ? q.max : 1;
+      }
+      var curBranch = currentFrame.branches[currentFrame.branches.length - 1];
+      curBranch.atoms.push({
+        text: pattern.slice(atomStart, end + 1),
+        isRepetition: isRep,
+        isNullable: isNull,
+        isVariable: q ? q.isVariable : false,
+        nullableCount: nullCount,
+        max: q ? q.max : 1
+      });
+      if (checkBranchConsecutiveNullable(curBranch)) return true;
+    }
+
+    return false;
+  };
 
   var urlPatternCtor = function() {
     if (typeof globalThis !== "undefined" && globalThis.URLPattern) return globalThis.URLPattern;
     if (typeof window !== "undefined" && window.URLPattern) return window.URLPattern;
 
     return null;
+  };
+
+  // Validates custom regex groups in URLPattern syntax for regular expression validity
+  // and cross-engine parity (tm-urlpattern-custom-groups-unvalidated).
+  var validateUrlPatternGroups = function(path) {
+    var escaped = false;
+    for (var i = 0; i < path.length; i++) {
+      var c = path[i];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (c === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (c === "(") {
+        var start = i + 1;
+        var depth = 1;
+        var innerEscaped = false;
+        var innerInCharClass = false;
+        var end = -1;
+        for (var j = start; j < path.length; j++) {
+          var ch = path[j];
+          if (innerEscaped) {
+            innerEscaped = false;
+            continue;
+          }
+          if (ch === "\\") {
+            innerEscaped = true;
+            continue;
+          }
+          if (innerInCharClass) {
+            if (ch === "]") innerInCharClass = false;
+            continue;
+          }
+          if (ch === "[") {
+            innerInCharClass = true;
+            continue;
+          }
+          if (ch === "(") {
+            depth++;
+          } else if (ch === ")") {
+            depth--;
+            if (depth === 0) {
+              end = j;
+              break;
+            }
+          }
+        }
+        if (end === -1) {
+          throw new Error("leviroutes: route " + JSON.stringify(path) +
+            " contains unclosed '(' in custom regex group");
+        }
+
+        var inner = path.slice(start, end);
+
+        // Check for engine parity: Firefox < 149 does not support lookahead/lookbehind
+        // assertions inside custom regex groups (Bugzilla 1998871; docs/urlpattern-investigation.md).
+        if (inner[0] === "?" && (inner[1] === "=" || inner[1] === "!" || inner.slice(1, 3) === "<=" || inner.slice(1, 3) === "<!")) {
+          throw new Error("leviroutes: route " + JSON.stringify(path) +
+            " uses lookaround assertion in custom regex group which lacks cross-engine parity in URLPattern");
+        }
+
+        if (hasNestedQuantifiers(inner)) {
+          throw new Error("leviroutes: route " + JSON.stringify(path) +
+            " contains nested quantifiers in custom regex group susceptible to catastrophic backtracking");
+        }
+
+        var lookaroundEscaped = false;
+        var lookaroundInCharClass = false;
+        for (var k = 0; k < inner.length; k++) {
+          var ik = inner[k];
+          if (lookaroundEscaped) {
+            lookaroundEscaped = false;
+            continue;
+          }
+          if (ik === "\\") {
+            lookaroundEscaped = true;
+            continue;
+          }
+          if (lookaroundInCharClass) {
+            if (ik === "]") lookaroundInCharClass = false;
+            continue;
+          }
+          if (ik === "[") {
+            lookaroundInCharClass = true;
+            continue;
+          }
+          if (ik === "(" && inner[k + 1] === "?") {
+            var next2 = inner.slice(k + 2, k + 4);
+            if (next2[0] === "=" || next2[0] === "!" || next2 === "<=" || next2 === "<!") {
+              throw new Error("leviroutes: route " + JSON.stringify(path) +
+                " uses lookaround assertion in custom regex group which lacks cross-engine parity in URLPattern");
+            }
+          }
+        }
+
+        // Validate regular expression syntax
+        try {
+          new RegExp("(" + inner + ")");
+        } catch (e) {
+          throw new Error("leviroutes: custom regex group in route " + JSON.stringify(path) +
+            " is not a valid regular expression: " + e.message);
+        }
+
+        i = end;
+      }
+    }
   };
 
   // Compiled shape for the urlpattern matcher: { pattern, groups, regexp: null }.
@@ -45,6 +994,8 @@ const routes = function(options) {
       throw new Error("leviroutes: the 'urlpattern' matcher needs the URL Pattern API " +
         "(available natively in current browsers and Node 24+, or via urlpattern-polyfill)");
     }
+
+    validateUrlPatternGroups(path);
 
     try {
       // Path-only patterns keep host and protocol wildcards, so a bare pathname from
@@ -120,7 +1071,66 @@ const routes = function(options) {
     return out;
   };
 
+  // Audits the assembled route regex body to ensure no unmatched ')' can escape
+  // the outer ^(?:...)$ wrapper and unanchor subsequent alternatives or prefixes
+  // (tm-anchor-wrapper-escapable-by-route-text, leviroutes-bym, leviroutes-2io).
+  var auditRouteStructure = function(body, originalPath) {
+    var depth = 0;
+    var inCharClass = false;
+    var escaped = false;
+    for (var i = 0; i < body.length; i++) {
+      var c = body[i];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (c === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (inCharClass) {
+        if (c === "]") inCharClass = false;
+        continue;
+      }
+      if (c === "[") {
+        inCharClass = true;
+        continue;
+      }
+      if (c === "(") {
+        depth++;
+      } else if (c === ")") {
+        depth--;
+        if (depth < 0) {
+          throw new Error("leviroutes: route " + JSON.stringify(originalPath) +
+            " contains unmatched ')' that alters route anchoring");
+        }
+      }
+    }
+    if (depth !== 0) {
+      throw new Error("leviroutes: route " + JSON.stringify(originalPath) +
+        " contains unclosed '(' in route pattern");
+    }
+    if (hasNestedQuantifiers(body)) {
+      throw new Error("leviroutes: route " + JSON.stringify(originalPath) +
+        " contains nested quantifiers in custom regex group susceptible to catastrophic backtracking");
+    }
+    try {
+      new RegExp(body);
+    } catch (err) {
+      throw new Error("leviroutes: route " + JSON.stringify(originalPath) +
+        " is not a valid regular expression: " + err.message);
+    }
+  };
+
   this.parseRoute = function(path) {
+    if (typeof path !== "string") {
+      throw new Error("leviroutes: route pattern must be a string");
+    }
+    if (path.length > MAX_PATTERN_LENGTH) {
+      throw new Error("leviroutes: route pattern exceeds maximum length of " +
+        MAX_PATTERN_LENGTH + " characters");
+    }
+
     if (matcherKind === "urlpattern") return compileUrlPattern(path);
 
     this.parseGroups = function(loc) {
@@ -158,6 +1168,13 @@ const routes = function(options) {
       }
 
       var tail = loc.slice(lastIndex);
+      var body = newRegexp + escapeUnescapedDots(tail);
+
+      // Audit the assembled body: verify parenthesis nesting so an unescaped ')'
+      // inside route text cannot close the ^(?:...)$ wrapper early and unanchor
+      // subsequent alternatives or prefixes (leviroutes-bym, leviroutes-2io).
+      auditRouteStructure(body, loc);
+
       // Match the whole path: end-anchored so '/category' does not match
       // '/category/extra', start-anchored so '/user/:id' does not match '/deep/user/42'
       // (the old end-only anchor was an accident that made every route a suffix match).
@@ -165,7 +1182,7 @@ const routes = function(options) {
       // a bare "^" + route + "$" makes §/index.html|/§ compile to /^\/index\.html|\/$/,
       // which also matches '/x/' - a path neither alternative names (leviroutes-bym). The
       // group is non-capturing, so every recorded group index in 'groups' is unchanged.
-      newRegexp = "^(?:" + newRegexp + escapeUnescapedDots(tail) + ")$"; 
+      newRegexp = "^(?:" + body + ")$"; 
 
       return { "groups" : groups, "regexp": new RegExp(newRegexp)};
     };
@@ -194,6 +1211,9 @@ const routes = function(options) {
   var matchRoute = function(url, e, server) {
     var route = null;
     var path = pathnameOf(url);
+    if (typeof path !== "string" || path.length > MAX_PATH_LENGTH) {
+      return false;
+    }
     for(var i = 0; route = _routes[i]; i ++) {
       var params = null;
 
@@ -268,13 +1288,6 @@ const routes = function(options) {
         } catch (err) { /* an unparseable URL simply has no values */ }
       }
 
-      // req.url is the URL as the caller supplied it: a Fetch Request keeps its
-      // absolute URL (origin and query included), an http.IncomingMessage its
-      // origin-form path + query, and a URL string stays exactly as passed. Only
-      // MATCHING is reduced to the pathname (pathnameOf() above), so a route says
-      // nothing about the host a request arrived on: a handler that cares about the
-      // origin, the query or the scheme must read req.url / req.values itself, and a
-      // handler that renders req.url must treat it as untrusted (leviroutes-evd).
       var req = {"url": url, "params": params, "values" : values, "e": e};
       if(server) {
         req.method = server.method;
@@ -331,11 +1344,7 @@ const routes = function(options) {
   // Fetch Request, or a plain URL string through the same route table the
   // browser uses. Matching honours the method each route was registered with
   // (get/post), unlike the browser paths which stay method-agnostic for
-  // backwards compatibility, and matches the PATHNAME only: an absolute URL (a form
-  // action resolved by the browser, a Fetch Request) is reduced with pathnameOf(),
-  // so the origin is never part of the match and is never validated here - a handler
-  // that acts on the host must check it itself (leviroutes-evd).
-  // Returns true when a route matches, unless server
+  // backwards compatibility. Returns true when a route matches, unless server
   // middleware explicitly calls next.abort() before returning without
   // committing the response; the caller can then send its own fallback. If the
   // route handler has already executed, dispatch() returns true even if
