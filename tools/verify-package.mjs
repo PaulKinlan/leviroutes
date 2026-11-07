@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
-import { minify } from 'terser';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const defaultRoot = path.resolve(here, '..');
@@ -30,6 +29,58 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
     pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
   } catch (err) {
     return fail(`invalid JSON in package.json: ${err.message}`);
+  }
+
+  // 1b. Pin the publish registry before any other check. npm resolves the publish
+  // endpoint from the environment, publishConfig and .npmrc, and any of them can
+  // silently redirect a publish (and its credentials) to a third-party host; the
+  // lockfile integrity hashes are only shape-checked below, so the rest of this
+  // guard would certify a substituted registry. A committed .npmrc is parsed here
+  // rather than trusted: registry= repins the host, and ignore-scripts=true
+  // disables the whole prepublishOnly lifecycle without any message (leviroutes-e0f,
+  // leviroutes-f9n).
+  const OFFICIAL_REGISTRY = 'https://registry.npmjs.org/';
+  const normalizeRegistry = (url) => String(url).trim().replace(/\/+$/, '') + '/';
+  const registryOffenders = [];
+  const envRegistry = process.env.npm_config_registry || process.env.NPM_CONFIG_REGISTRY;
+  if (envRegistry && normalizeRegistry(envRegistry) !== OFFICIAL_REGISTRY) {
+    registryOffenders.push(`environment npm_config_registry=${envRegistry}`);
+  }
+  if (pkg.publishConfig && pkg.publishConfig.registry && normalizeRegistry(pkg.publishConfig.registry) !== OFFICIAL_REGISTRY) {
+    registryOffenders.push(`package.json publishConfig.registry=${pkg.publishConfig.registry}`);
+  }
+  const npmrcPath = path.join(root, '.npmrc');
+  if (fs.existsSync(npmrcPath)) {
+    let npmrc;
+    try {
+      npmrc = fs.readFileSync(npmrcPath, 'utf8');
+    } catch (err) {
+      return fail(`unreadable .npmrc: ${err.message}`);
+    }
+    for (const rawLine of npmrc.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#') || line.startsWith(';')) continue;
+      const m = /^(registry|ignore-scripts)\s*=\s*(.*)$/.exec(line);
+      if (!m) continue;
+      const [, key, value] = m;
+      if (key === 'registry' && normalizeRegistry(value) !== OFFICIAL_REGISTRY) {
+        registryOffenders.push(`.npmrc registry=${value}`);
+      }
+      if (key === 'ignore-scripts') {
+        // npm coerces booleans case-insensitively across several spellings
+        // (npmrc: true/t/yes/y/1/on, optionally quoted), and every one of them
+        // silently skips the prepublishOnly lifecycle - so the guard must
+        // reject the whole truthy set, not just the literal 'true'
+        // (leviroutes-mwg).
+        const unquoted = value.trim().replace(/^(['"])(.*)\1$/, '$2');
+        if (/^(true|t|yes|y|1|on)$/i.test(unquoted)) {
+          registryOffenders.push('.npmrc ignore-scripts=true disables the prepublishOnly lifecycle');
+        }
+      }
+    }
+  }
+  if (registryOffenders.length > 0) {
+    return fail(`publish registry must be ${OFFICIAL_REGISTRY} (offenders: ${registryOffenders.join('; ')})`);
   }
 
   const requiredEntries = [
@@ -118,17 +169,15 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
     return fail('package.json scripts["verify:package"] must execute "node tools/verify-package.mjs"');
   }
 
-  const buildBody = (pkg.scripts?.build || '').trim();
-  if (buildBody !== 'npm run build:min') {
-    return fail(`package.json scripts.build must be exactly "npm run build:min" (got: ${buildBody})`);
+  // The package ships its source directly: the browser condition points at
+  // src/routes.js and there is no build step (leviroutes-o71, Paul's Option A).
+  // A build or build:min script would recreate the unreviewable build-output
+  // artifact this contract removed, so their presence fails the guard.
+  if (pkg.scripts && ('build' in pkg.scripts || 'build:min' in pkg.scripts)) {
+    return fail('package.json must not define build scripts: the browser condition exports src/routes.js directly (leviroutes-o71)');
   }
 
-  const buildMinBody = (pkg.scripts?.['build:min'] || '').trim();
-  if (buildMinBody !== 'terser src/routes.js -o dist/routes.min.js -c -m --comments false') {
-    return fail(`package.json scripts["build:min"] must be exactly "terser src/routes.js -o dist/routes.min.js -c -m --comments false" (got: ${buildMinBody})`);
-  }
-
-  // Reject unallowlisted npm lifecycle hooks that could bypass or mutate build/test artifacts
+  // Reject unallowlisted npm lifecycle hooks that could bypass or mutate test artifacts
   const forbiddenHooks = [
     'prebuild', 'prebuild:min', 'postbuild', 'postbuild:min',
     'pretest', 'posttest', 'prepublish', 'prepare', 'prepack'
@@ -156,11 +205,9 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
   const commands = prepublishOnly.split('&&').map(c => c.trim()).filter(Boolean);
   const testPattern = /^(?:npm\s+(?:run\s+)?test|jasmine)$/;
   const verifyPattern = /^(?:npm\s+run\s+verify:package|node\s+tools\/verify-package\.mjs)$/;
-  const buildPattern = /^(?:npm\s+run\s+build(?::min)?)$/;
 
   let testIdx = -1;
   let verifyIdx = -1;
-  let buildIdx = -1;
 
   for (let i = 0; i < commands.length; i++) {
     const cmd = commands[i];
@@ -168,15 +215,13 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
       if (testIdx === -1) testIdx = i;
     } else if (verifyPattern.test(cmd)) {
       if (verifyIdx === -1) verifyIdx = i;
-    } else if (buildPattern.test(cmd)) {
-      if (buildIdx === -1) buildIdx = i;
     } else {
       return fail(`prepublishOnly contains unallowlisted command segment: ${cmd}`);
     }
   }
 
-  if (testIdx === -1 || verifyIdx === -1 || buildIdx === -1 || testIdx > verifyIdx || verifyIdx > buildIdx || commands.length !== 3) {
-    return fail('prepublishOnly script must strictly chain test, verify:package, and build commands in order: npm test && npm run verify:package && npm run build');
+  if (testIdx === -1 || verifyIdx === -1 || testIdx > verifyIdx || commands.length !== 2) {
+    return fail('prepublishOnly script must strictly chain test and verify:package in order: npm test && npm run verify:package');
   }
 
   // 2. Bind the effective Jasmine config: a higher-precedence .mjs/.js config
@@ -231,31 +276,8 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
     }
   }
 
-  // 3. Build minified artifact and assert regeneration from src/routes.js (AFTER script validation)
-  const distPath = path.join(root, 'dist', 'routes.min.js');
-  if (fs.existsSync(distPath)) {
-    fs.unlinkSync(distPath);
-  }
-
-  try {
-    execSync('npm run build', { cwd: root, stdio: 'pipe', env: npmEnv });
-  } catch (err) {
-    return fail(`npm run build failed: ${err.message}`);
-  }
-
-  if (!fs.existsSync(distPath)) {
-    return fail('npm run build did not generate dist/routes.min.js');
-  }
-
-  // Assert dist/routes.min.js matches exact compilation of src/routes.js
-  const srcContent = fs.readFileSync(path.join(root, 'src', 'routes.js'), 'utf8');
-  const compiled = await minify(srcContent, { compress: true, mangle: true, format: { comments: false } });
-  const distContent = fs.readFileSync(distPath, 'utf8');
-  if (compiled.code.trim() !== distContent.trim()) {
-    return fail('dist/routes.min.js is not compiled from src/routes.js');
-  }
-
-  // 4. Validate file presence on disk
+  // 3. Validate file presence on disk (browser and main both point at src/routes.js:
+  // the package ships its source, there is no build output to regenerate - leviroutes-o71)
   for (const entry of requiredEntries) {
     const resolved = path.join(root, entry.target);
     if (!fs.existsSync(resolved)) {
@@ -267,7 +289,8 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
     }
   }
 
-  // 5. Import and smoke test src/routes.js
+  // 4. Import and smoke test src/routes.js (the main, module and browser
+  // condition all resolve to the same reviewed source file)
   try {
     const { default: RoutesSrc } = await import(path.join(root, pkg.main));
     if (typeof RoutesSrc !== 'function') {
@@ -284,21 +307,21 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
     return fail(`src smoke verification failed: ${err.message}`);
   }
 
-  // 6. Import and smoke test dist/routes.min.js
+  // 5. Import and smoke test the browser-condition export
   try {
-    const { default: RoutesDist } = await import(path.join(root, pkg.browser));
-    if (typeof RoutesDist !== 'function') {
-      throw new Error('Default export from browser artifact is not a constructor/function');
+    const { default: RoutesBrowser } = await import(path.join(root, pkg.browser));
+    if (typeof RoutesBrowser !== 'function') {
+      throw new Error('Default export from browser condition is not a constructor/function');
     }
-    const r2 = new RoutesDist();
-    let calledDist = false;
-    r2.get('/verify-dist', () => { calledDist = true; });
-    r2.test('/verify-dist');
-    if (!calledDist) {
-      throw new Error('Routing match failed in dist instance');
+    const r2 = new RoutesBrowser();
+    let calledBrowser = false;
+    r2.get('/verify-browser', () => { calledBrowser = true; });
+    r2.test('/verify-browser');
+    if (!calledBrowser) {
+      throw new Error('Routing match failed in browser-condition instance');
     }
   } catch (err) {
-    return fail(`dist smoke verification failed: ${err.message}`);
+    return fail(`browser smoke verification failed: ${err.message}`);
   }
 
   // 7. Package export resolution assertions
@@ -334,7 +357,7 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
     return fail(`package condition resolution failed: ${err.message}`);
   }
 
-  const passMsg = 'verify-package: PASS (build, package metadata, ESM import, browser export verified)';
+  const passMsg = 'verify-package: PASS (package metadata, ESM import, browser export verified)';
   if (exitOnError) {
     console.log(passMsg);
     process.exit(0);

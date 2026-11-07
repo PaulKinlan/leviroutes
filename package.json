@@ -5,10 +5,10 @@
   "type": "module",
   "main": "./src/routes.js",
   "module": "./src/routes.js",
-  "browser": "./dist/routes.min.js",
+  "browser": "./src/routes.js",
   "exports": {
     ".": {
-      "browser": "./dist/routes.min.js",
+      "browser": "./src/routes.js",
       "import": "./src/routes.js"
     }
   },
@@ -17,9 +17,7 @@
     "test:fast": "bash tools/fast-gate.sh",
     "test:full": "bash tools/full-gate.sh",
     "verify:package": "node tools/verify-package.mjs",
-    "build": "npm run build:min",
-    "build:min": "terser src/routes.js -o dist/routes.min.js -c -m --comments false",
-    "prepublishOnly": "npm test && npm run verify:package && npm run build"
+    "prepublishOnly": "npm test && npm run verify:package"
   },
   "keywords": [
     "router",
@@ -42,12 +40,10 @@
   "homepage": "https://github.com/PaulKinlan/leviroutes#readme",
   "devDependencies": {
     "jasmine": "^5.1.0",
-    "jsdom": "^23.0.0",
-    "terser": "^5.27.0"
+    "jsdom": "^23.0.0"
   },
   "files": [
     "src/",
-    "dist/",
     "README.md",
     "LICENCE"
   ]
