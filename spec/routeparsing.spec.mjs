@@ -217,6 +217,18 @@ describe("route parsing", function() {
     expect(function() {
       r.get("/:x(((a|aa))+)", function(){});
     }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:x((a|[\\x61])+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:x((a|\\u0061)+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/x/((a|b)*)+", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
   });
 
   it("should accept linear non-catastrophic custom patterns without false rejection", function() {
@@ -259,5 +271,17 @@ describe("route parsing", function() {
     var r10 = new routes();
     r10.get("/:x((?:[a-z]|[0-9])+)", function(){});
     expect(r10.getRoutes()[0].regex.regexp).toEqual(/^(?:\/((?:[a-z]|[0-9])+))$/);
+
+    var r11 = new routes();
+    r11.get("/:x((?:en|es)+)", function(){});
+    expect(r11.getRoutes()[0].regex.regexp).toEqual(/^(?:\/((?:en|es)+))$/);
+
+    var r12 = new routes();
+    r12.get("/:ext((?:\\.json|\\.xml)+)", function(){});
+    expect(r12.getRoutes()[0].regex.regexp).toEqual(/^(?:\/((?:\.json|\.xml)+))$/);
+
+    var r13 = new routes();
+    r13.get("/:seg((?:v1|v2)+)", function(){});
+    expect(r13.getRoutes()[0].regex.regexp).toEqual(/^(?:\/((?:v1|v2)+))$/);
   });
 });
