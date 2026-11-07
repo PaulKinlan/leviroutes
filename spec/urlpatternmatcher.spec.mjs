@@ -72,6 +72,16 @@ describe("urlpattern matcher (opt-in)", function() {
     expect(paramsFor("/files{/:id}?", "/files/7", { matcher: "urlpattern" })).toEqual({ id: "7" });
   });
 
+  it("registers a linear nested custom group in the urlpattern matcher too", function() {
+    if (!supported) return pending("URLPattern is not available in this environment");
+    // leviroutes-omc1: the nested-quantifier guard is shared by both matchers, so the
+    // linear delimiter-separated repeat it used to refuse must register here as well.
+    // Non-capturing wrappers only: URLPattern itself refuses a repeated group that holds
+    // a capturing group, which is a separate engine limitation from this guard.
+    expect(paramsFor("/list/:items((?:(?:\\d+,))*)", "/list/1,2,3,", { matcher: "urlpattern" }))
+      .toEqual({ items: "1,2,3," });
+  });
+
   it("names the route when a regex-flavoured route cannot be a URL pattern", function() {
     if (!supported) return pending("URLPattern is not available in this environment");
     var app = new routes({ matcher: "urlpattern" });

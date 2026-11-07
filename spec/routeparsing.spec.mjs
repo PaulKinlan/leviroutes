@@ -457,6 +457,18 @@ describe("route parsing", function() {
     expect(function() {
       r.get("/:id((?:a?){5,5}){5,5}", function(){});
     }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    // leviroutes-omc1: the parenthesised-group check must still fire one nesting level
+    // deeper than the linear controls that now register - the fix narrows the test from
+    // "a group's text overlaps itself" to "the group's own boundary atoms overlap", so
+    // these genuinely exponential deep shapes stay refused.
+    expect(function() {
+      r.get("/:id(((a+a))+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id((((?:\\d\\d?))*))", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
   });
 
   it("should accept linear non-catastrophic custom patterns without false rejection", function() {
@@ -607,5 +619,30 @@ describe("route parsing", function() {
     var r37 = new routes();
     r37.get("/:num(\\d{1,4}(?:.\\d{1,4}){2})", function(){});
     expect(r37.getRoutes()[0].regex.regexp).toEqual(/^(?:\/(\d{1,4}(?:.\d{1,4}){2}))$/);
+
+    // leviroutes-omc1: one extra level of parentheses around a linear,
+    // delimiter-separated repeat must register. Every iteration consumes a literal
+    // delimiter (',', '/', '.'), so the inner group cannot re-partition the same
+    // characters and the repetition is linear. Before this fix the self-overlap test
+    // compared the group's text with itself - trivially true - and refused these
+    // while the identical one-level-shallower forms registered.
+    var r38 = new routes();
+    r38.get("/:list(((\\d+,))*)", function(){});
+    expect(r38.getRoutes()[0].regex.regexp).toEqual(/^(?:\/(((\d+,))*))$/);
+    expect(r38.getRoutes()[0].regex.regexp.exec("/1,2,3,")[1]).toEqual("1,2,3,");
+
+    var r39 = new routes();
+    r39.get("/:p(((?:[^/]+/))*)", function(){});
+    expect(r39.getRoutes()[0].regex.regexp).toEqual(/^(?:\/(((?:[^/]+\/))*))$/);
+    expect(r39.getRoutes()[0].regex.regexp.exec("/a/b/c/")[1]).toEqual("a/b/c/");
+
+    var r40 = new routes();
+    r40.get("/:v(((\\w+\\.))*)", function(){});
+    expect(r40.getRoutes()[0].regex.regexp).toEqual(/^(?:\/(((\w+\.))*))$/);
+    expect(r40.getRoutes()[0].regex.regexp.exec("/a.b.c.")[1]).toEqual("a.b.c.");
+
+    var r41 = new routes();
+    r41.get("/:list(((\\d+,))+)", function(){});
+    expect(r41.getRoutes()[0].regex.regexp).toEqual(/^(?:\/(((\d+,))+))$/);
   });
 });

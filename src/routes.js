@@ -435,6 +435,65 @@ const routes = function(options) {
       return { branches: [newBranch(0)] };
     };
 
+    // leviroutes-omc1: whether a repeated atom can split the same characters differently
+    // on each iteration is a property of the atom's CONTENT, not of its text. Comparing a
+    // group's text with itself is trivially true (the wrapper always overlaps the wrapper),
+    // which refused linear delimiter-separated repeats one nesting level deeper than the
+    // already-accepted single-group form: '((\d+,))*' threw while '(\d+,)*' registered.
+    // Each iteration of that outer repeat must consume a literal delimiter, so the inner
+    // group cannot re-partition anything - the same test the wrap-around arm applies to a
+    // frame's own atoms has to be applied inside the group instead of at its surface.
+    var reachesEndOfBranch = function(atoms, j) {
+      for (var t = j + 1; t < atoms.length; t++) {
+        if (!atoms[t].isNullable) return false;
+      }
+      return true;
+    };
+
+    var reachesStartOfBranch = function(atoms, k) {
+      for (var l = 0; l < k; l++) {
+        if (!atoms[l].isNullable) return false;
+      }
+      return true;
+    };
+
+    // Can this atom overlap itself across two iterations of a repetition? For a group
+    // atom, ask its own boundary atoms (first reachable atom vs last reachable atom);
+    // for a plain atom such as '\d+', the atom does overlap itself.
+    var atomSelfRepartitions = function(atom) {
+      if (atom.selfRepartition !== undefined) return atom.selfRepartition;
+
+      var result = false;
+      var frame = atom.frame;
+      if (frame) {
+        for (var bIdx = 0; bIdx < frame.branches.length && !result; bIdx++) {
+          var atoms = frame.branches[bIdx].atoms;
+          for (var j = 0; j < atoms.length && !result; j++) {
+            if (!reachesEndOfBranch(atoms, j)) continue;
+            for (var k = 0; k < atoms.length; k++) {
+              if (!reachesStartOfBranch(atoms, k)) continue;
+              if (!atoms[j].isRepetition && !atoms[k].isRepetition &&
+                  !atoms[j].isVariable && !atoms[k].isVariable) continue;
+              if (atomPairOverlaps(atoms[j], atoms[k])) {
+                result = true;
+                break;
+              }
+            }
+          }
+        }
+      } else {
+        result = branchesOverlap(atom.text, atom.text);
+      }
+
+      atom.selfRepartition = result;
+      return result;
+    };
+
+    var atomPairOverlaps = function(a, b) {
+      if (a === b) return atomSelfRepartitions(a);
+      return branchesOverlap(a.text, b.text);
+    };
+
     var checkBranchConsecutiveNullable = function(branch) {
       var consecutiveNullCount = 0;
       var lastNullAtom = null;
@@ -744,7 +803,7 @@ const routes = function(options) {
                 }
 
                 if (atoms[j].isRepetition || atoms[k].isRepetition || atoms[j].isVariable || atoms[k].isVariable) {
-                  if (branchesOverlap(atoms[j].text, atoms[k].text)) {
+                  if (atomPairOverlaps(atoms[j], atoms[k])) {
                     if (!q.isVariable && q.max !== undefined && q.max < 8) {
                       var jUnbounded = atoms[j].max === undefined || atoms[j].max === Infinity;
                       var kUnbounded = atoms[k].max === undefined || atoms[k].max === Infinity;
@@ -768,6 +827,7 @@ const routes = function(options) {
         }
         currentBranch.atoms.push({
           text: pattern.slice(atomStart, end + 1),
+          frame: finishedFrame,
           isRepetition: isRep || innerIsRep,
           isNullable: isNull || innerIsNull,
           isVariable: q ? q.isVariable : innerIsVariable,
