@@ -556,16 +556,45 @@ const routes = function(options) {
 
         var innerIsRep = false;
         var innerIsNull = false;
+        var frameHasMultipleNullable = false;
+        var frameCanMatchEmpty = false;
+
+        for (var bIdx = 0; bIdx < finishedFrame.branches.length; bIdx++) {
+          var fb = finishedFrame.branches[bIdx];
+          var fbAtoms = fb.atoms;
+          var branchNull = true;
+          for (var a = 0; a < fbAtoms.length; a++) {
+            if (!fbAtoms[a].isNullable) {
+              branchNull = false;
+              break;
+            }
+          }
+          if (branchNull) {
+            frameCanMatchEmpty = true;
+            if (fbAtoms.length >= 2) {
+              frameHasMultipleNullable = true;
+            }
+          }
+          for (var a = 0; a < fbAtoms.length; a++) {
+            if (fbAtoms[a].hasMultipleNullable) {
+              frameHasMultipleNullable = true;
+            }
+          }
+        }
+
         if (finishedFrame.branches.length === 1 && finishedFrame.branches[0].atoms.length === 1) {
           var innerAtom = finishedFrame.branches[0].atoms[0];
           if (innerAtom.isRepetition) innerIsRep = true;
           if (innerAtom.isNullable) innerIsNull = true;
+        } else if (frameCanMatchEmpty) {
+          innerIsNull = true;
         }
 
         if (isRep) {
           if (anyBranchHasInternal) return true;
           if (hasOverlappingAlt) return true;
           if (innerIsRep) return true;
+          if (frameHasMultipleNullable) return true;
 
           for (var bIdx = 0; bIdx < finishedFrame.branches.length; bIdx++) {
             var branch = finishedFrame.branches[bIdx];
@@ -636,7 +665,8 @@ const routes = function(options) {
         currentBranch.atoms.push({
           text: pattern.slice(atomStart, end + 1),
           isRepetition: isRep || innerIsRep,
-          isNullable: isNull || innerIsNull
+          isNullable: isNull || innerIsNull,
+          hasMultipleNullable: frameHasMultipleNullable
         });
         continue;
       }
