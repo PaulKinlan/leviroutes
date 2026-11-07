@@ -32,6 +32,50 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
     return fail(`invalid JSON in package.json: ${err.message}`);
   }
 
+  // 1b. Pin the publish registry before any other check. npm resolves the publish
+  // endpoint from the environment, publishConfig and .npmrc, and any of them can
+  // silently redirect a publish (and its credentials) to a third-party host; the
+  // lockfile integrity hashes are only shape-checked below, so the rest of this
+  // guard would certify a substituted registry. A committed .npmrc is parsed here
+  // rather than trusted: registry= repins the host, and ignore-scripts=true
+  // disables the whole prepublishOnly lifecycle without any message (leviroutes-e0f,
+  // leviroutes-f9n).
+  const OFFICIAL_REGISTRY = 'https://registry.npmjs.org/';
+  const normalizeRegistry = (url) => String(url).trim().replace(/\/+$/, '') + '/';
+  const registryOffenders = [];
+  const envRegistry = process.env.npm_config_registry || process.env.NPM_CONFIG_REGISTRY;
+  if (envRegistry && normalizeRegistry(envRegistry) !== OFFICIAL_REGISTRY) {
+    registryOffenders.push(`environment npm_config_registry=${envRegistry}`);
+  }
+  if (pkg.publishConfig && pkg.publishConfig.registry && normalizeRegistry(pkg.publishConfig.registry) !== OFFICIAL_REGISTRY) {
+    registryOffenders.push(`package.json publishConfig.registry=${pkg.publishConfig.registry}`);
+  }
+  const npmrcPath = path.join(root, '.npmrc');
+  if (fs.existsSync(npmrcPath)) {
+    let npmrc;
+    try {
+      npmrc = fs.readFileSync(npmrcPath, 'utf8');
+    } catch (err) {
+      return fail(`unreadable .npmrc: ${err.message}`);
+    }
+    for (const rawLine of npmrc.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#') || line.startsWith(';')) continue;
+      const m = /^(registry|ignore-scripts)\s*=\s*(.*)$/.exec(line);
+      if (!m) continue;
+      const [, key, value] = m;
+      if (key === 'registry' && normalizeRegistry(value) !== OFFICIAL_REGISTRY) {
+        registryOffenders.push(`.npmrc registry=${value}`);
+      }
+      if (key === 'ignore-scripts' && value.trim() === 'true') {
+        registryOffenders.push('.npmrc ignore-scripts=true disables the prepublishOnly lifecycle');
+      }
+    }
+  }
+  if (registryOffenders.length > 0) {
+    return fail(`publish registry must be ${OFFICIAL_REGISTRY} (offenders: ${registryOffenders.join('; ')})`);
+  }
+
   const requiredEntries = [
     { field: 'main', target: pkg.main },
     { field: 'module', target: pkg.module },
