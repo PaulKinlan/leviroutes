@@ -73,6 +73,64 @@ describe("routing", function() {
     expect(e.defaultPrevented).toEqual(true);
   });
 
+  it("should populate req.values with last-wins semantics for duplicate form field names", function() {
+    var seen = null;
+    r.post("/tags", function(req) {
+      seen = req.values;
+    });
+
+    var form = document.createElement("form");
+    form.action = "/tags";
+    form.method = "post";
+
+    var input1 = document.createElement("input");
+    input1.name = "tag";
+    input1.value = "first";
+    form.appendChild(input1);
+
+    var input2 = document.createElement("input");
+    input2.name = "tag";
+    input2.value = "second";
+    form.appendChild(input2);
+
+    window.document.body.appendChild(form);
+
+    var e = new Event("submit", { bubbles: true, cancelable: true });
+    form.dispatchEvent(e);
+    window.document.body.removeChild(form);
+
+    expect(seen).toEqual({ tag: "second" });
+  });
+
+  it("should bound req.values to MAX_VALUES_COUNT distinct keys for form submissions", function() {
+    var seen = null;
+    r.post("/form-bulk", function(req) {
+      seen = req.values;
+    });
+
+    var form = document.createElement("form");
+    form.action = "/form-bulk";
+    form.method = "post";
+
+    for (var i = 0; i < 1100; i++) {
+      var input = document.createElement("input");
+      input.name = "k" + i;
+      input.value = "v" + i;
+      form.appendChild(input);
+    }
+
+    window.document.body.appendChild(form);
+
+    var e = new Event("submit", { bubbles: true, cancelable: true });
+    form.dispatchEvent(e);
+    window.document.body.removeChild(form);
+
+    expect(Object.keys(seen).length).toEqual(1024);
+    expect(seen["k0"]).toEqual("v0");
+    expect(seen["k1023"]).toEqual("v1023");
+    expect(seen["k1024"]).toBeUndefined();
+  });
+
   it("should not fall back to a native submit when a matched route's middleware throws", function() {
     var middlewareRan = false;
     var callbackRan = false;
