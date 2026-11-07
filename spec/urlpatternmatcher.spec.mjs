@@ -126,4 +126,26 @@ describe("urlpattern matcher (opt-in)", function() {
     expect(seen.params.hasOwnProperty).toEqual("test-value");
     expect(Object.getPrototypeOf(seen.params)).toBeNull();
   });
+
+  // leviroutes-evd: the normalisation half both modes must agree on. Captures stay
+  // percent-encoded exactly as the default matcher reports them (leviroutes-o01), so a
+  // handler never sees one mode decoded and the other not.
+  it("keeps captured parameters percent-encoded, like the default matcher", function() {
+    if (!supported) return pending("URLPattern is not available in this environment");
+
+    expect(paramsFor("/files/:name", "/files/a%20b", { matcher: "urlpattern" }).name).toEqual("a%20b");
+    expect(paramsFor("/files/:name", "/files/a%20b").name).toEqual("a%20b");
+  });
+
+  // The documented divergence (README matcher table, docs/urlpattern-investigation.md):
+  // URLPattern encodes route TEXT into a pattern, so '/a b' matches '/a%20b'; the default
+  // matcher compares its compiled regexp to the encoded pathname as-is, so the route has to
+  // be written encoded. Pinned here because it is a migration trap, not a detail.
+  it("encodes route text like a URL pattern, where the default matcher needs it encoded", function() {
+    if (!supported) return pending("URLPattern is not available in this environment");
+
+    expect(paramsFor("/a b", "/a%20b", { matcher: "urlpattern" })).not.toEqual("none");
+    expect(paramsFor("/a b", "/a%20b")).toEqual("none");
+    expect(paramsFor("/a%20b", "/a%20b")).not.toEqual("none");
+  });
 });

@@ -129,6 +129,9 @@ Differences from the default matcher:
 | `/:category` vs `/foo.json` | no match (segment excludes `.`) | match (`foo.json`) |
 | `/files/:name` vs `/files/report.pdf` | no match | match |
 | trailing slash | `/foo` and `/foo/` are different routes | same; use `/foo{/}?` to accept both |
+| route text the URL parser encodes (`/a b`, `/caf\u00e9`) | write the encoded pathname (`/a%20b`): the route is compared to the encoded pathname as-is | the route text is encoded for you, so `/a b` matches `/a%20b` |
+| captured parameter value | percent-encoded as it appears in the path (`a%20b`) | percent-encoded too (kept aligned with the default matcher) |
+| dot segments | the URL parser already resolved them before matching (`/a/x/../b` arrives as `/a/b`) | same, URL parsing resolves them |
 | `/foo+` | regex quantifier | **throws** — name the route in the error and escape literals |
 | optional segment | not expressible | `/files{/:id}?` |
 
@@ -233,6 +236,15 @@ In dispatch mode the `req` passed to middleware and route callbacks gains:
 * `req.request` / `req.response` — the original objects passed to `dispatch()`
 * `req.values` — parsed from the query string (the server equivalent of the
   browser's form-field values)
+
+`req.url` is the URL exactly as the caller supplied it — a Fetch `Request` keeps its absolute URL
+(origin and query included), a Node `IncomingMessage` its origin-form path and query, and a URL string
+stays as passed. Only **matching** is reduced to the pathname, so a route never says anything about the
+host a request arrived on: `/user/:id` matches `http://other.test/user/42` as well as `/user/42`, and
+nothing in the framework validates the origin. A handler that cares about the host, scheme or query
+must check `req.url` (or `req.values`) itself, and a handler that renders `req.url` must treat it as
+untrusted input. The same is true for browser form interception, where a form's `action` resolves to an
+absolute URL before matching.
 
 Routes are registered with `get()` and `post()`. A `HEAD` request is routed to the
 matching `get()` handler (RFC 9110: HEAD is GET without the body — write the body

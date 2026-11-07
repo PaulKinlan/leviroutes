@@ -110,6 +110,30 @@ describe("server dispatch", function() {
     expect(seen.values).toEqual({ q: "hello" });
   });
 
+  // leviroutes-evd: matching reduces an absolute URL to its pathname, so a route says
+  // nothing about the host - but req.url stays exactly as the caller supplied it, and
+  // nothing validates the origin. A handler that acts on the host must check it.
+  it("should keep req.url as the raw URL while matching only its pathname", function() {
+    var seen = null;
+    r.get("/user/:id", function(req) { seen = req; });
+
+    expect(r.dispatch(new Request("http://other.test/user/42?tab=posts"))).toEqual(true);
+
+    expect(seen.params.id).toEqual("42");
+    expect(seen.url).toEqual("http://other.test/user/42?tab=posts");
+    expect(seen.values.tab).toEqual("posts");
+  });
+
+  it("should not treat the origin of an absolute URL as part of the match", function() {
+    var seen = null;
+    r.get("/test", function(req) { seen = req; });
+
+    expect(r.dispatch("http://other.test/test")).toEqual(true);
+    expect(seen.url).toEqual("http://other.test/test");
+    // Same path one level deeper still misses: the pathname is what is anchored.
+    expect(r.dispatch("http://other.test/deep/test")).toEqual(false);
+  });
+
   it("should safely store prototype-named query parameters in req.values without collision", function() {
     var seen = null;
     r.get("/search", function(req) { seen = req; });

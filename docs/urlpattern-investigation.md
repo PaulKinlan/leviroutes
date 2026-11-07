@@ -100,6 +100,24 @@ URL, with full-path anchoring and a documented grammar. Verified behaviour (Node
 | Absolute form action | `exec('http://e.com/deep/user/42')` works directly — no manual path extraction |
 | `ignoreCase` | Default `false` (`/AbC` does not match `/abc`); hostname/scheme are still case-normalised by URL parsing |
 | URL normalisation | `/a/x/../b` matches `{pathname:'/a/b'}`; `/a%20b` matches `{pathname:'/a b'}` |
+
+### Normalisation: the one place the two modes still differ (`leviroutes-evd`)
+
+`pathnameOf()` gives both matchers the same input — the pathname the URL parser produces, which already
+resolved dot segments (`/a/x/../b` arrives as `/a/b`) and keeps percent-encoding as written. The
+matchers then treat that string differently:
+
+* `urlpattern` **encodes the route text** as a URL pattern, so a route written `/a b` or `/caf\u00e9`
+  matches the encoded pathname `/a%20b` / `/caf%C3%A9`; a route written `/a/x/../b` matches `/a/b`
+  (measured, Node 24.22.0).
+* `regexp` compares the compiled regular expression to the encoded pathname as-is, so `/a b` matches
+  nothing and `/a%20b` is the route you write.
+* Both modes return the **percent-encoded** capture (`/files/a%20b` → `{name:'a%20b'}`), which is the
+  part `leviroutes-o01` aligned; `spec/urlpatternmatcher.spec.mjs` pins it so it stays aligned.
+
+Because the encoded form is the one both modes accept, writing encoded route text keeps a route table
+portable between matchers; the divergence is documented in the README table rather than normalised at
+runtime, since re-encoding route text would change which paths existing default-matcher routes accept.
 | Unparseable input | `test('not a url:::')` returns `false`, `exec` returns a result only if the pathname matches — neither throws |
 | `exec()` shape | `{inputs, protocol, hostname, port, pathname, search, hash, username, password}`, each component `{input, groups}` |
 | Static helpers | `URLPattern.parse` and `compareComponent` do **not** exist (Node 24.22.0, and they are not in the spec either — do not depend on them) |
