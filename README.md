@@ -251,12 +251,16 @@ To run the examples, start a local web server in the project root and navigate t
 npm test
 ```
 
-### Building
+### Testing the package
 
-The build process creates a minified version in `dist/routes.min.js`:
+The package ships its reviewed source directly: `main`, `module` and the
+`browser` condition all resolve to [`src/routes.js`](src/routes.js), and there is
+no build step. Before a publish, `prepublishOnly` runs the full test suite and
+the package verification gate:
 
 ```bash
-npm run build
+npm test                  # the suite
+npm run verify:package    # static + runtime package gate (registry pinning, lifecycle contract, smoke tests)
 ```
 
 ### URLPattern investigation

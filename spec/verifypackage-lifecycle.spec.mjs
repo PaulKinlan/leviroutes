@@ -1,0 +1,113 @@
+/*
+ * The no-build publish contract (leviroutes-o71, Paul's Option A): the package
+ * ships its reviewed source directly, so the browser condition points at
+ * src/routes.js, there is no build script, and prepublishOnly chains exactly
+ * test then verify:package.
+ *
+ * Same fixture approach as verifypackage-registry.spec.mjs: verifyPackage()
+ * with exitOnError:false/skipExecution:true, fixtures that satisfy every check
+ * before the one under test, and the first LATER check ('missing
+ * spec/support/jasmine.json') as the control's proving error.
+ */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { verifyPackage } from '../tools/verify-package.mjs';
+
+describe("verify-package no-build lifecycle contract", function() {
+  var root;
+
+  beforeEach(function() {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "vp-lifecycle-"));
+  });
+
+  afterEach(function() {
+    if (root) fs.rmSync(root, { recursive: true, force: true });
+    root = null;
+  });
+
+  // Satisfies every static check up to (and including) the lifecycle chain,
+  // so the control's first failure is the jasmine-config check that follows it.
+  var fixture = (overrides) => {
+    const pkg = Object.assign({
+      name: "fixture",
+      version: "1.0.0",
+      main: "./src/routes.js",
+      module: "./src/routes.js",
+      browser: "./src/routes.js",
+      exports: { ".": { browser: "./src/routes.js", import: "./src/routes.js" } },
+      scripts: {
+        test: "jasmine",
+        "verify:package": "node tools/verify-package.mjs",
+        prepublishOnly: "npm test && npm run verify:package"
+      }
+    }, overrides || {});
+    fs.writeFileSync(path.join(root, "package.json"), JSON.stringify(pkg));
+    fs.writeFileSync(path.join(root, "package-lock.json"), JSON.stringify({
+      name: "fixture", version: "1.0.0", packages: {}
+    }));
+  };
+
+  it("accepts the two-command prepublishOnly chain and no build script", async function() {
+    fixture();
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    // The lifecycle checks passed; the first failing check is the next one in line.
+    expect(result.error).toContain("missing spec/support/jasmine.json");
+  });
+
+  it("rejects a reintroduced build script", async function() {
+    fixture({ scripts: {
+      test: "jasmine",
+      "verify:package": "node tools/verify-package.mjs",
+      prepublishOnly: "npm test && npm run verify:package",
+      build: "npm run build:min"
+    } });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("must not define build scripts");
+  });
+
+  it("rejects a build command in the prepublishOnly chain", async function() {
+    fixture({ scripts: {
+      test: "jasmine",
+      "verify:package": "node tools/verify-package.mjs",
+      prepublishOnly: "npm test && npm run verify:package && npm run build"
+    } });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("unallowlisted command segment: npm run build");
+  });
+
+  it("rejects verify running before test", async function() {
+    fixture({ scripts: {
+      test: "jasmine",
+      "verify:package": "node tools/verify-package.mjs",
+      prepublishOnly: "npm run verify:package && npm test"
+    } });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("must strictly chain test and verify:package in order");
+  });
+
+  it("accepts the bare jasmine form of the test command", async function() {
+    fixture({ scripts: {
+      test: "jasmine",
+      "verify:package": "node tools/verify-package.mjs",
+      prepublishOnly: "jasmine && npm run verify:package"
+    } });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("missing spec/support/jasmine.json");
+  });
+});
