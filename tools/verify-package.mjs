@@ -66,8 +66,16 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
       if (key === 'registry' && normalizeRegistry(value) !== OFFICIAL_REGISTRY) {
         registryOffenders.push(`.npmrc registry=${value}`);
       }
-      if (key === 'ignore-scripts' && value.trim() === 'true') {
-        registryOffenders.push('.npmrc ignore-scripts=true disables the prepublishOnly lifecycle');
+      if (key === 'ignore-scripts') {
+        // npm coerces booleans case-insensitively across several spellings
+        // (npmrc: true/t/yes/y/1/on, optionally quoted), and every one of them
+        // silently skips the prepublishOnly lifecycle - so the guard must
+        // reject the whole truthy set, not just the literal 'true'
+        // (leviroutes-mwg).
+        const unquoted = value.trim().replace(/^(['"])(.*)\1$/, '$2');
+        if (/^(true|t|yes|y|1|on)$/i.test(unquoted)) {
+          registryOffenders.push('.npmrc ignore-scripts=true disables the prepublishOnly lifecycle');
+        }
       }
     }
   }

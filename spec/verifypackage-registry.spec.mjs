@@ -71,6 +71,34 @@ describe("verify-package registry pinning", function() {
     expect(result.error).toContain("ignore-scripts=true");
   });
 
+  it("rejects every truthy ignore-scripts spelling npm honours", async function() {
+    // npm coerces booleans case-insensitively across true/t/yes/y/1/on and
+    // quoted forms (leviroutes-mwg repro B: each skips prepublishOnly).
+    for (const spelling of ["1", "TRUE", "Yes", "on", "t", "y", "\"true\"", "'on'"]) {
+      fs.writeFileSync(path.join(root, "package.json"), PKG);
+      fs.writeFileSync(path.join(root, ".npmrc"), `ignore-scripts=${spelling}\n`);
+
+      const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain("ignore-scripts");
+    }
+  });
+
+  it("accepts falsy ignore-scripts spellings that keep the lifecycle enabled", async function() {
+    for (const spelling of ["false", "0", "no", "off", "FALSE"]) {
+      fs.writeFileSync(path.join(root, "package.json"), PKG);
+      fs.writeFileSync(path.join(root, ".npmrc"), `ignore-scripts=${spelling}\n`);
+
+      const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+      expect(result.ok).toBe(false);
+      // The lifecycle is enabled, so the ignore-scripts check did not fire;
+      // the first failing check is the next one in line.
+      expect(result.error).toContain("missing main");
+    }
+  });
+
   it("accepts an .npmrc with the official registry and unrelated settings", async function() {
     fs.writeFileSync(path.join(root, "package.json"), PKG);
     fs.writeFileSync(path.join(root, ".npmrc"), "registry=https://registry.npmjs.org/\nsave-exact=true\n");
