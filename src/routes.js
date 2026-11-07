@@ -32,16 +32,18 @@ const routes = function(options) {
   var MAX_PATH_LENGTH = 4096;
   var MAX_VALUES_COUNT = 1024;
 
-  // Parse quantifier token at startIdx in pattern: returns { isRepetition, end } or null.
+  // Parse quantifier token at startIdx in pattern: returns { isRepetition, isVariable, end } or null.
   // Repetition quantifiers (+, *, {n,m} where max > 1) can repeat multiple times.
-  // Optional quantifiers (?, {0,1}, {1}) match at most once and cannot cause exponential loops.
+  // Fixed quantifiers ({1}, {2} where min === max) match a fixed number of times and cannot cause variable ambiguity.
+  // Optional quantifiers (?, {0,1}) match at most once.
   // Group prefixes like '(?' are syntax, not quantifiers.
   var parseQuantifierToken = function(pattern, startIdx) {
+    if (startIdx >= pattern.length) return null;
     var c = pattern[startIdx];
     if (c === "+" || c === "*") {
       var end = startIdx;
       if (pattern[end + 1] === "?") end++;
-      return { isRepetition: true, end: end };
+      return { isRepetition: true, isVariable: true, end: end };
     }
     if (c === "?") {
       if (startIdx > 0 && pattern[startIdx - 1] === "(") {
@@ -49,7 +51,7 @@ const routes = function(options) {
       }
       var end = startIdx;
       if (pattern[end + 1] === "?") end++;
-      return { isRepetition: false, end: end };
+      return { isRepetition: false, isVariable: true, end: end };
     }
     if (c === "{") {
       var closeBrace = pattern.indexOf("}", startIdx);
@@ -61,18 +63,28 @@ const routes = function(options) {
           var max = m[2] === undefined ? min : (m[2] === "" ? Infinity : parseInt(m[2], 10));
           var end = closeBrace;
           if (pattern[end + 1] === "?") end++;
-          return { isRepetition: max > 1, end: end };
+          var isVariable = (max === Infinity || max > min);
+          var isRepetition = (max === Infinity || max > 1) && isVariable;
+          return { isRepetition: isRepetition, isVariable: isVariable, end: end };
         }
       }
     }
     return null;
   };
 
-  // Parse-aware helper to detect nested quantifiers like (a+)+, ((a+))+, (a{1,})+, or (a+){2,}
+  // Parse-aware helper to detect nested quantifiers and overlapping repeated alternations
   // that trigger catastrophic backtracking in regular expressions (tm-unbounded-pattern-eval-on-untrusted-path,
-  // leviroutes-njt, leviroutes-39k, leviroutes-1hs, leviroutes-vsu).
+  // leviroutes-njt, leviroutes-39k, leviroutes-1hs, leviroutes-vsu, leviroutes-8sb, leviroutes-aqt).
   var hasNestedQuantifiers = function(pattern) {
+    var newBranch = function() {
+      return { atomCount: 0, soleRepetition: false, firstPrefix: null, isNullable: false };
+    };
+    var newFrame = function() {
+      return { branches: [newBranch()] };
+    };
+
     var stack = [];
+    var currentFrame = newFrame();
     var inCharClass = false;
     var escaped = false;
 
@@ -92,38 +104,89 @@ const routes = function(options) {
       }
       if (c === "[") {
         inCharClass = true;
+        var b = currentFrame.branches[currentFrame.branches.length - 1];
+        b.atomCount++;
+        if (b.atomCount > 1) b.soleRepetition = false;
+        if (b.firstPrefix === null) b.firstPrefix = "[...]";
         continue;
       }
       if (c === "(") {
-        stack.push({ hasRepetition: false });
+        if (pattern.slice(i + 1, i + 3) === "?:") {
+          i += 2;
+        }
+        stack.push(currentFrame);
+        currentFrame = newFrame();
+        continue;
+      }
+      if (c === "|") {
+        currentFrame.branches.push(newBranch());
         continue;
       }
       if (c === ")") {
-        var frame = stack.pop() || { hasRepetition: false };
+        var finishedFrame = currentFrame;
+        currentFrame = stack.pop() || newFrame();
+        var currentBranch = currentFrame.branches[currentFrame.branches.length - 1];
+        currentBranch.atomCount++;
+        if (currentBranch.atomCount > 1) currentBranch.soleRepetition = false;
+
+        var frameSoleRepetition = false;
+        if (finishedFrame.branches.length === 1 && finishedFrame.branches[0].soleRepetition) {
+          frameSoleRepetition = true;
+        }
+
+        var hasOverlappingAlternation = false;
+        if (finishedFrame.branches.length > 1) {
+          var prefixes = {};
+          for (var k = 0; k < finishedFrame.branches.length; k++) {
+            var br = finishedFrame.branches[k];
+            if (br.isNullable || br.firstPrefix === null) {
+              hasOverlappingAlternation = true;
+              break;
+            }
+            if (prefixes[br.firstPrefix]) {
+              hasOverlappingAlternation = true;
+              break;
+            }
+            prefixes[br.firstPrefix] = true;
+          }
+        }
+
         var q = parseQuantifierToken(pattern, i + 1);
         if (q) {
           if (q.isRepetition) {
-            if (frame.hasRepetition) {
-              return true;
+            for (var m = 0; m < finishedFrame.branches.length; m++) {
+              if (finishedFrame.branches[m].soleRepetition) return true;
             }
-            if (stack.length > 0) {
-              stack[stack.length - 1].hasRepetition = true;
+            if (hasOverlappingAlternation) return true;
+
+            if (finishedFrame.branches.length === 1 && finishedFrame.branches[0].atomCount <= 1) {
+              currentBranch.soleRepetition = true;
             }
           }
           i = q.end;
-        } else if (frame.hasRepetition && stack.length > 0) {
-          stack[stack.length - 1].hasRepetition = true;
+        } else if (frameSoleRepetition && finishedFrame.branches.length === 1 && finishedFrame.branches[0].atomCount <= 1) {
+          currentBranch.soleRepetition = true;
         }
         continue;
       }
 
       var token = parseQuantifierToken(pattern, i);
       if (token) {
-        if (token.isRepetition && stack.length > 0) {
-          stack[stack.length - 1].hasRepetition = true;
+        var b = currentFrame.branches[currentFrame.branches.length - 1];
+        if (token.isRepetition && b.atomCount <= 1) {
+          b.soleRepetition = true;
+        }
+        if (!token.isRepetition && token.isVariable) {
+          if (b.atomCount <= 1) b.isNullable = true;
         }
         i = token.end;
+        continue;
       }
+
+      var b = currentFrame.branches[currentFrame.branches.length - 1];
+      b.atomCount++;
+      if (b.atomCount > 1) b.soleRepetition = false;
+      if (b.firstPrefix === null) b.firstPrefix = c;
     }
 
     return false;

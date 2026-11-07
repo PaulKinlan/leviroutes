@@ -189,6 +189,18 @@ describe("route parsing", function() {
     expect(function() {
       r.get("/:ids((\\d+|x)+)", function(){});
     }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id((a|aa)+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id((a|a?)+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id((ab|a)+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
   });
 
   it("should accept linear non-catastrophic custom patterns without false rejection", function() {
@@ -215,5 +227,17 @@ describe("route parsing", function() {
     var r6 = new routes();
     r6.get("/x/(a[+]b)+", function(){});
     expect(r6.getRoutes()[0].regex.regexp).toEqual(/^(?:\/x\/(a[+]b)+)$/);
+
+    var r7 = new routes();
+    r7.get("/:path((?:[^/]+/)*[^/]+)", function(){});
+    expect(r7.getRoutes()[0].regex.regexp).toEqual(/^(?:\/((?:[^/]+\/)*[^/]+))$/);
+
+    var r8 = new routes();
+    r8.get("/:slug([a-z0-9]+(?:-[a-z0-9]+)*)", function(){});
+    expect(r8.getRoutes()[0].regex.regexp).toEqual(/^(?:\/([a-z0-9]+(?:-[a-z0-9]+)*))$/);
+
+    var r9 = new routes();
+    r9.get("/:id((?:\\d{2})+)", function(){});
+    expect(r9.getRoutes()[0].regex.regexp).toEqual(/^(?:\/((?:\d{2})+))$/);
   });
 });
