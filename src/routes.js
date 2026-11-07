@@ -599,19 +599,44 @@ const routes = function(options) {
         var frameHasMultipleNullable = false;
         var frameCanMatchEmpty = false;
         var frameNullableCount = 0;
+        var frameHasRepetition = false;
+        var frameIsVariable = false;
+        var frameMinLen = Infinity;
+        var frameMaxLen = 0;
 
         for (var bIdx = 0; bIdx < finishedFrame.branches.length; bIdx++) {
           var fb = finishedFrame.branches[bIdx];
           var fbAtoms = fb.atoms;
           var branchNull = true;
           var bNullCount = 0;
+          var bMin = 0;
+          var bMax = 0;
+          var bVar = false;
           for (var a = 0; a < fbAtoms.length; a++) {
-            bNullCount += fbAtoms[a].nullableCount || 0;
-            if (!fbAtoms[a].isNullable) {
+            var at = fbAtoms[a];
+            bNullCount += at.nullableCount || 0;
+            if (at.isRepetition) frameHasRepetition = true;
+            if (at.isVariable) bVar = true;
+            if (at.isNullable) {
+              bMin += 0;
+            } else {
+              bMin += (at.min !== undefined ? at.min : 1);
+            }
+            if (at.max === undefined || at.max === Infinity) {
+              bMax = Infinity;
+              bVar = true;
+            } else {
+              bMax += at.max;
+            }
+            if (!at.isNullable) {
               branchNull = false;
-              break;
             }
           }
+          if (bMin !== bMax) bVar = true;
+          if (bVar) frameIsVariable = true;
+          frameMinLen = Math.min(frameMinLen, bMin);
+          frameMaxLen = Math.max(frameMaxLen, bMax);
+
           if (branchNull) {
             frameCanMatchEmpty = true;
             if (fbAtoms.length >= 2) {
@@ -625,6 +650,8 @@ const routes = function(options) {
             }
           }
         }
+        if (frameMinLen !== frameMaxLen) frameIsVariable = true;
+        innerIsVariable = frameIsVariable;
 
         var groupNullableCount = 0;
         if (frameCanMatchEmpty) {
@@ -733,6 +760,12 @@ const routes = function(options) {
           }
         }
 
+        var groupMax = 1;
+        if (q && q.max !== undefined) {
+          groupMax = (frameMaxLen === Infinity || q.max === Infinity) ? Infinity : frameMaxLen * q.max;
+        } else {
+          groupMax = frameMaxLen;
+        }
         currentBranch.atoms.push({
           text: pattern.slice(atomStart, end + 1),
           isRepetition: isRep || innerIsRep,
@@ -740,7 +773,7 @@ const routes = function(options) {
           isVariable: q ? q.isVariable : innerIsVariable,
           hasMultipleNullable: frameHasMultipleNullable,
           nullableCount: (isNull || innerIsNull) ? groupNullableCount : 0,
-          max: q ? q.max : 1
+          max: groupMax
         });
         if (checkBranchConsecutiveNullable(currentBranch)) return true;
         continue;

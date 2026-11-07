@@ -295,6 +295,30 @@ describe("route parsing", function() {
     }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
 
     expect(function() {
+      r.get("/:id(((\\d\\d?))+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id(((?:\\d\\d?))+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id((((\\d\\d?)))+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id(((\\d\\d?)){20})", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id(((\\d\\d?))*)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id(((\\d\\d?)){3,})", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
       r.get("/:id(([a-z]|[a-z]{2})+)", function(){});
     }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
 
