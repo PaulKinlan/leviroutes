@@ -54,6 +54,79 @@ describe("routing", function() {
     expect(triggered).toEqual(false);
   });
 
+  it("should prevent the native submit when a matched route runs without throwing", function() {
+    var triggered = false;
+    r.post("/test", function() {
+      triggered = true;
+    });
+    var form = document.createElement("form");
+    form.action = "/test";
+    form.method = "post";
+    window.document.body.appendChild(form);
+
+    var e = new Event("submit", { bubbles: true, cancelable: true });
+    form.dispatchEvent(e);
+
+    window.document.body.removeChild(form);
+
+    expect(triggered).toEqual(true);
+    expect(e.defaultPrevented).toEqual(true);
+  });
+
+  it("should not fall back to a native submit when a matched route's middleware throws", function() {
+    var middlewareRan = false;
+    var callbackRan = false;
+    var submitListener = null;
+
+    // Capture the router's submit listener instead of dispatchEvent: jsdom
+    // reports listener exceptions through its virtual console instead of
+    // returning them to the caller, and this spec must assert the rethrow.
+    var r2 = null;
+    var originalAdd = window.addEventListener;
+    window.addEventListener = function(type, fn) {
+      if (type === "submit") submitListener = fn;
+    };
+    try {
+      r2 = new routes();
+    } finally {
+      window.addEventListener = originalAdd;
+    }
+
+    // Register on the same instance whose listener was captured above.
+    r2.use(function() {
+      middlewareRan = true;
+      throw new Error("middleware boom");
+    });
+    r2.post("/test", function() {
+      callbackRan = true;
+    });
+
+    var form = document.createElement("form");
+    form.action = "/test";
+    form.method = "post";
+    window.document.body.appendChild(form);
+
+    var e = new Event("submit", { bubbles: true, cancelable: true });
+    // A synthetic Event has no target of its own; the listener reads e.target.method.
+    Object.defineProperty(e, "target", { value: form });
+
+    var thrown = null;
+    try {
+      submitListener(e);
+    } catch (err) {
+      thrown = err;
+    }
+
+    window.document.body.removeChild(form);
+
+    // The middleware ran, its throw unwound the dispatch, the error must stay
+    // loud (rethrown), and the submit must not become a native POST (leviroutes-303).
+    expect(middlewareRan).toEqual(true);
+    expect(callbackRan).toEqual(false);
+    expect(thrown).not.toBe(null);
+    expect(e.defaultPrevented).toEqual(true);
+  });
+
   it("should match a named route on the whole path, not as a suffix", function() {
     var matched = null;
     r.get("/user/:id", function(req) {
