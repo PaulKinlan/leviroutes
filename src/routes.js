@@ -72,15 +72,120 @@ const routes = function(options) {
     return null;
   };
 
+  // Extracts the leading character set / nullability of a regex branch for overlap analysis.
+  var parseFirstSet = function(str, startIdx) {
+    if (startIdx >= str.length) {
+      return { chars: new Set(), isWildcard: false, isNullable: true };
+    }
+    var i = startIdx;
+    while (str.slice(i, i + 3) === "(?:") i += 3;
+    while (str[i] === "(") i += 1;
+
+    var c = str[i];
+    var chars = new Set();
+    var isWildcard = false;
+    var nextIdx = i + 1;
+
+    if (c === "\\") {
+      var esc = str[i + 1];
+      nextIdx = i + 2;
+      if (esc === "d") {
+        for (var code = 48; code <= 57; code++) chars.add(code);
+      } else if (esc === "w") {
+        for (var code = 48; code <= 57; code++) chars.add(code);
+        for (var code = 65; code <= 90; code++) chars.add(code);
+        for (var code = 97; code <= 122; code++) chars.add(code);
+        chars.add(95);
+      } else if (esc === "s") {
+        chars.add(32); chars.add(9); chars.add(10); chars.add(13);
+      } else if (esc === "x" && /^[0-9a-fA-F]{2}/.test(str.slice(i + 2, i + 4))) {
+        chars.add(parseInt(str.slice(i + 2, i + 4), 16));
+        nextIdx = i + 4;
+      } else if (esc) {
+        chars.add(esc.charCodeAt(0));
+      }
+    } else if (c === "[") {
+      var close = str.indexOf("]", i + 1);
+      if (close !== -1) {
+        nextIdx = close + 1;
+        var inner = str.slice(i + 1, close);
+        var inverted = false;
+        if (inner[0] === "^") {
+          inverted = true;
+          inner = inner.slice(1);
+        }
+        var inClassChars = new Set();
+        for (var j = 0; j < inner.length; j++) {
+          if (inner[j] === "\\" && j + 1 < inner.length) {
+            var inEsc = inner[j + 1];
+            j++;
+            if (inEsc === "d") {
+              for (var code = 48; code <= 57; code++) inClassChars.add(code);
+            } else if (inEsc === "w") {
+              for (var code = 48; code <= 57; code++) inClassChars.add(code);
+              for (var code = 65; code <= 90; code++) inClassChars.add(code);
+              for (var code = 97; code <= 122; code++) inClassChars.add(code);
+              inClassChars.add(95);
+            } else {
+              inClassChars.add(inEsc.charCodeAt(0));
+            }
+          } else if (j + 2 < inner.length && inner[j + 1] === "-") {
+            var from = inner.charCodeAt(j);
+            var to = inner.charCodeAt(j + 2);
+            for (var code = from; code <= to; code++) inClassChars.add(code);
+            j += 2;
+          } else {
+            inClassChars.add(inner.charCodeAt(j));
+          }
+        }
+        if (inverted) {
+          for (var code = 0; code < 128; code++) {
+            if (!inClassChars.has(code)) chars.add(code);
+          }
+        } else {
+          chars = inClassChars;
+        }
+      }
+    } else if (c === ".") {
+      isWildcard = true;
+    } else if (c !== undefined) {
+      chars.add(c.charCodeAt(0));
+    }
+
+    var isNullable = false;
+    if (nextIdx < str.length) {
+      if (str[nextIdx] === "?" || str[nextIdx] === "*") {
+        isNullable = true;
+      } else if (str[nextIdx] === "{") {
+        var closeBrace = str.indexOf("}", nextIdx);
+        if (closeBrace !== -1) {
+          var brace = str.slice(nextIdx + 1, closeBrace);
+          if (/^0(?:,|$)/.test(brace)) isNullable = true;
+        }
+      }
+    }
+
+    return { chars: chars, isWildcard: isWildcard, isNullable: isNullable };
+  };
+
+  var setsOverlap = function(s1, s2) {
+    if (s1.isNullable || s2.isNullable) return true;
+    if (s1.isWildcard || s2.isWildcard) return true;
+    for (var code of s1.chars) {
+      if (s2.chars.has(code)) return true;
+    }
+    return false;
+  };
+
   // Parse-aware helper to detect nested quantifiers and overlapping repeated alternations
   // that trigger catastrophic backtracking in regular expressions (tm-unbounded-pattern-eval-on-untrusted-path,
-  // leviroutes-njt, leviroutes-39k, leviroutes-1hs, leviroutes-vsu, leviroutes-8sb, leviroutes-aqt).
+  // leviroutes-njt, leviroutes-39k, leviroutes-1hs, leviroutes-vsu, leviroutes-8sb, leviroutes-aqt, leviroutes-0yz).
   var hasNestedQuantifiers = function(pattern) {
-    var newBranch = function() {
-      return { atomCount: 0, soleRepetition: false, firstPrefix: null, isNullable: false };
+    var newBranch = function(startIdx) {
+      return { atomCount: 0, soleRepetition: false, startIdx: startIdx, hasOverlappingAlternation: false };
     };
     var newFrame = function() {
-      return { branches: [newBranch()] };
+      return { branches: [newBranch(0)] };
     };
 
     var stack = [];
@@ -107,7 +212,6 @@ const routes = function(options) {
         var b = currentFrame.branches[currentFrame.branches.length - 1];
         b.atomCount++;
         if (b.atomCount > 1) b.soleRepetition = false;
-        if (b.firstPrefix === null) b.firstPrefix = "[...]";
         continue;
       }
       if (c === "(") {
@@ -115,11 +219,11 @@ const routes = function(options) {
           i += 2;
         }
         stack.push(currentFrame);
-        currentFrame = newFrame();
+        currentFrame = { branches: [newBranch(i + 1)] };
         continue;
       }
       if (c === "|") {
-        currentFrame.branches.push(newBranch());
+        currentFrame.branches.push(newBranch(i + 1));
         continue;
       }
       if (c === ")") {
@@ -136,19 +240,25 @@ const routes = function(options) {
 
         var hasOverlappingAlternation = false;
         if (finishedFrame.branches.length > 1) {
-          var prefixes = {};
-          for (var k = 0; k < finishedFrame.branches.length; k++) {
-            var br = finishedFrame.branches[k];
-            if (br.isNullable || br.firstPrefix === null) {
-              hasOverlappingAlternation = true;
-              break;
-            }
-            if (prefixes[br.firstPrefix]) {
-              hasOverlappingAlternation = true;
-              break;
-            }
-            prefixes[br.firstPrefix] = true;
+          var branchSets = [];
+          for (var bIdx = 0; bIdx < finishedFrame.branches.length; bIdx++) {
+            branchSets.push(parseFirstSet(pattern, finishedFrame.branches[bIdx].startIdx));
           }
+          for (var j = 0; j < branchSets.length; j++) {
+            for (var k = j + 1; k < branchSets.length; k++) {
+              if (setsOverlap(branchSets[j], branchSets[k])) {
+                hasOverlappingAlternation = true;
+                break;
+              }
+            }
+            if (hasOverlappingAlternation) break;
+          }
+        } else if (finishedFrame.branches[0].hasOverlappingAlternation) {
+          hasOverlappingAlternation = true;
+        }
+
+        if (hasOverlappingAlternation) {
+          currentBranch.hasOverlappingAlternation = true;
         }
 
         var q = parseQuantifierToken(pattern, i + 1);
@@ -176,9 +286,6 @@ const routes = function(options) {
         if (token.isRepetition && b.atomCount <= 1) {
           b.soleRepetition = true;
         }
-        if (!token.isRepetition && token.isVariable) {
-          if (b.atomCount <= 1) b.isNullable = true;
-        }
         i = token.end;
         continue;
       }
@@ -186,7 +293,6 @@ const routes = function(options) {
       var b = currentFrame.branches[currentFrame.branches.length - 1];
       b.atomCount++;
       if (b.atomCount > 1) b.soleRepetition = false;
-      if (b.firstPrefix === null) b.firstPrefix = c;
     }
 
     return false;
