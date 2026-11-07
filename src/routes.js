@@ -30,6 +30,7 @@ const routes = function(options) {
   // against ReDoS or unbounded input attacks (tm-unbounded-pattern-eval-on-untrusted-path).
   var MAX_PATTERN_LENGTH = 2048;
   var MAX_PATH_LENGTH = 4096;
+  var MAX_VALUES_COUNT = 1024;
 
   // Parse quantifier token at startIdx in pattern: returns { isRepetition, end } or null.
   // Repetition quantifiers (+, *, {n,m} where max > 1) can repeat multiple times.
@@ -510,21 +511,40 @@ const routes = function(options) {
       }
 
       var values = Object.create(null);
+      var valuesCount = 0;
       if(e && e.target instanceof HTMLFormElement) {
         var form = e.target;
-        var items = form.length;
+        var controls = form.elements || form;
+        var count = controls.length;
         var item;
-        for(var j = 0; item = form[j]; j++) {
-          if(!!item.name) values[item.name] = item.value;
+        for(var j = 0; j < count; j++) {
+          item = controls[j] || form[j];
+          if(item && !!item.name) {
+            // Last-wins semantics for duplicate field names (leviroutes-ghj),
+            // and bound distinct keys to MAX_VALUES_COUNT.
+            if (!(item.name in values)) {
+              if (valuesCount >= MAX_VALUES_COUNT) continue;
+              valuesCount++;
+            }
+            values[item.name] = item.value;
+          }
         }
       }
 
       // On the server there is no form to read values from; the query string is
       // the equivalent carrier, so its parameters become req.values.
+      // Duplicate search parameters predictably collapse to the last value (last-wins),
+      // bounded to at most MAX_VALUES_COUNT distinct keys.
       if(server) {
         try {
           var parsed = new URL(url, "http://localhost/");
-          parsed.searchParams.forEach(function(value, name) { values[name] = value; });
+          parsed.searchParams.forEach(function(value, name) {
+            if (!(name in values)) {
+              if (valuesCount >= MAX_VALUES_COUNT) return;
+              valuesCount++;
+            }
+            values[name] = value;
+          });
         } catch (err) { /* an unparseable URL simply has no values */ }
       }
 

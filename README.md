@@ -220,7 +220,8 @@ In dispatch mode the `req` passed to middleware and route callbacks gains:
 * `req.method` — the lowercased HTTP method of the request (`"get"`, `"post"`, ...)
 * `req.request` / `req.response` — the original objects passed to `dispatch()`
 * `req.values` — parsed from the query string (the server equivalent of the
-  browser's form-field values)
+  browser's form-field values). Duplicate keys collapse with last-wins semantics across both
+  browser forms and query strings, and distinct keys are capped to 1024.
 
 Routes are registered with `get()` and `post()`. A `HEAD` request is routed to the
 matching `get()` handler (RFC 9110: HEAD is GET without the body — write the body

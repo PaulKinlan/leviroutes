@@ -123,6 +123,31 @@ describe("server dispatch", function() {
     expect(Object.getPrototypeOf(seen.values)).toBeNull();
   });
 
+  it("should collapse duplicate query parameters using last-wins semantics", function() {
+    var seen = null;
+    r.get("/filter", function(req) { seen = req; });
+
+    r.dispatch({ url: "/filter?tag=first&tag=second&tag=final", method: "GET" });
+
+    expect(seen.values).toEqual({ tag: "final" });
+  });
+
+  it("should bound req.values to MAX_VALUES_COUNT distinct keys", function() {
+    var seen = null;
+    r.get("/bulk", function(req) { seen = req; });
+
+    var params = [];
+    for (var i = 0; i < 1100; i++) {
+      params.push("k" + i + "=v" + i);
+    }
+    r.dispatch({ url: "/bulk?" + params.join("&"), method: "GET" });
+
+    expect(Object.keys(seen.values).length).toEqual(1024);
+    expect(seen.values["k0"]).toEqual("v0");
+    expect(seen.values["k1023"]).toEqual("v1023");
+    expect(seen.values["k1024"]).toBeUndefined();
+  });
+
   it("should run the middleware chain before the route callback", function() {
     var order = [];
     r.use(function(req, next) { order.push("mw1"); next(); });
