@@ -65,7 +65,7 @@ const routes = function(options) {
           if (pattern[end + 1] === "?") end++;
           var isVariable = (max === Infinity || max > min);
           var isRepetition = (max === Infinity || max > 1) && isVariable;
-          return { isRepetition: isRepetition, isNullable: min === 0, isVariable: isVariable, end: end };
+          return { isRepetition: isRepetition, isNullable: min === 0, isVariable: isVariable, min: min, max: max, end: end };
         }
       }
     }
@@ -459,7 +459,8 @@ const routes = function(options) {
         curBranch.atoms.push({
           text: pattern.slice(atomStart, end + 1),
           isRepetition: isRep,
-          isNullable: isNull
+          isNullable: isNull,
+          isVariable: q ? q.isVariable : false
         });
         continue;
       }
@@ -485,7 +486,8 @@ const routes = function(options) {
           curBranch.atoms.push({
             text: pattern.slice(atomStart, end + 1),
             isRepetition: isRep,
-            isNullable: isNull
+            isNullable: isNull,
+            isVariable: q ? q.isVariable : false
           });
         }
         continue;
@@ -548,7 +550,7 @@ const routes = function(options) {
         var isRep = false;
         var isNull = false;
         if (q) {
-          isRep = q.isRepetition;
+          isRep = q.isRepetition || (q.max !== undefined && q.max > 1);
           isNull = q.isNullable;
           end = q.end;
           i = q.end;
@@ -556,6 +558,7 @@ const routes = function(options) {
 
         var innerIsRep = false;
         var innerIsNull = false;
+        var innerIsVariable = false;
         var frameHasMultipleNullable = false;
         var frameCanMatchEmpty = false;
 
@@ -584,8 +587,9 @@ const routes = function(options) {
 
         if (finishedFrame.branches.length === 1 && finishedFrame.branches[0].atoms.length === 1) {
           var innerAtom = finishedFrame.branches[0].atoms[0];
-          if (innerAtom.isRepetition) innerIsRep = true;
+          if (innerAtom.isVariable && innerAtom.isRepetition) innerIsRep = true;
           if (innerAtom.isNullable) innerIsNull = true;
+          if (innerAtom.isVariable) innerIsVariable = true;
         } else if (frameCanMatchEmpty) {
           innerIsNull = true;
         }
@@ -666,6 +670,7 @@ const routes = function(options) {
           text: pattern.slice(atomStart, end + 1),
           isRepetition: isRep || innerIsRep,
           isNullable: isNull || innerIsNull,
+          isVariable: q ? q.isVariable : innerIsVariable,
           hasMultipleNullable: frameHasMultipleNullable
         });
         continue;
@@ -686,7 +691,8 @@ const routes = function(options) {
       curBranch.atoms.push({
         text: pattern.slice(atomStart, end + 1),
         isRepetition: isRep,
-        isNullable: isNull
+        isNullable: isNull,
+        isVariable: q ? q.isVariable : false
       });
     }
 

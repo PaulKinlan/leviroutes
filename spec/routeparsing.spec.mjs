@@ -353,6 +353,30 @@ describe("route parsing", function() {
     expect(function() {
       r.get("/:id(((?:a?b?))+)+", function(){});
     }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id((.*a){20})", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id((.*a){5})", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id(([a-z]+[a-z]){15})", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id((\\d+\\d){20})", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id((a+){2,2})", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id((a+){20})", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
   });
 
   it("should accept linear non-catastrophic custom patterns without false rejection", function() {
@@ -463,5 +487,9 @@ describe("route parsing", function() {
     var r27 = new routes();
     r27.get("/:id(([a-z]{2}\\d{2}|[a-z]{2}\\d{4})+)", function(){});
     expect(r27.getRoutes()[0].regex.regexp).toEqual(/^(?:\/(([a-z]{2}\d{2}|[a-z]{2}\d{4})+))$/);
+
+    var r28 = new routes();
+    r28.get("/:id((a+b){20})", function(){});
+    expect(r28.getRoutes()[0].regex.regexp).toEqual(/^(?:\/((a+b){20}))$/);
   });
 });
