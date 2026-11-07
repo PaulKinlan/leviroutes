@@ -555,5 +555,13 @@ describe("route parsing", function() {
     var r35 = new routes();
     r35.get("/:id((?:a?){5})", function(){});
     expect(r35.getRoutes()[0].regex.regexp).toEqual(/^(?:\/((?:a?){5}))$/);
+
+    var r36 = new routes();
+    r36.get("/:ip(\\d{1,3}(?:.\\d{1,3}){3})", function(){});
+    expect(r36.getRoutes()[0].regex.regexp).toEqual(/^(?:\/(\d{1,3}(?:.\d{1,3}){3}))$/);
+
+    var r37 = new routes();
+    r37.get("/:num(\\d{1,4}(?:.\\d{1,4}){2})", function(){});
+    expect(r37.getRoutes()[0].regex.regexp).toEqual(/^(?:\/(\d{1,4}(?:.\d{1,4}){2}))$/);
   });
 });

@@ -43,7 +43,7 @@ const routes = function(options) {
     if (c === "+" || c === "*") {
       var end = startIdx;
       if (pattern[end + 1] === "?") end++;
-      return { isRepetition: true, isNullable: c === "*", isVariable: true, end: end };
+      return { isRepetition: true, isNullable: c === "*", isVariable: true, max: Infinity, end: end };
     }
     if (c === "?") {
       if (startIdx > 0 && pattern[startIdx - 1] === "(") {
@@ -51,7 +51,7 @@ const routes = function(options) {
       }
       var end = startIdx;
       if (pattern[end + 1] === "?") end++;
-      return { isRepetition: false, isNullable: true, isVariable: true, end: end };
+      return { isRepetition: false, isNullable: true, isVariable: true, max: 1, end: end };
     }
     if (c === "{") {
       var closeBrace = pattern.indexOf("}", startIdx);
@@ -488,7 +488,8 @@ const routes = function(options) {
           isRepetition: isRep,
           isNullable: isNull,
           isVariable: q ? q.isVariable : false,
-          nullableCount: nullCount
+          nullableCount: nullCount,
+          max: q ? q.max : 1
         });
         if (checkBranchConsecutiveNullable(curBranch)) return true;
         continue;
@@ -521,7 +522,8 @@ const routes = function(options) {
             isRepetition: isRep,
             isNullable: isNull,
             isVariable: q ? q.isVariable : false,
-            nullableCount: nullCount
+            nullableCount: nullCount,
+            max: q ? q.max : 1
           });
           if (checkBranchConsecutiveNullable(curBranch)) return true;
         }
@@ -665,6 +667,13 @@ const routes = function(options) {
                     }
                   }
                   if (reachable && branchesOverlap(atoms[j].text, atoms[k].text)) {
+                    if (!q.isVariable && q.max !== undefined && q.max < 8) {
+                      var jUnbounded = atoms[j].max === undefined || atoms[j].max === Infinity;
+                      var kUnbounded = atoms[k].max === undefined || atoms[k].max === Infinity;
+                      if (!jUnbounded && !kUnbounded) {
+                        continue;
+                      }
+                    }
                     return true;
                   }
                 }
@@ -709,6 +718,13 @@ const routes = function(options) {
 
                 if (atoms[j].isRepetition || atoms[k].isRepetition) {
                   if (branchesOverlap(atoms[j].text, atoms[k].text)) {
+                    if (!q.isVariable && q.max !== undefined && q.max < 8) {
+                      var jUnbounded = atoms[j].max === undefined || atoms[j].max === Infinity;
+                      var kUnbounded = atoms[k].max === undefined || atoms[k].max === Infinity;
+                      if (!jUnbounded && !kUnbounded) {
+                        continue;
+                      }
+                    }
                     return true;
                   }
                 }
@@ -723,7 +739,8 @@ const routes = function(options) {
           isNullable: isNull || innerIsNull,
           isVariable: q ? q.isVariable : innerIsVariable,
           hasMultipleNullable: frameHasMultipleNullable,
-          nullableCount: (isNull || innerIsNull) ? groupNullableCount : 0
+          nullableCount: (isNull || innerIsNull) ? groupNullableCount : 0,
+          max: q ? q.max : 1
         });
         if (checkBranchConsecutiveNullable(currentBranch)) return true;
         continue;
@@ -750,7 +767,8 @@ const routes = function(options) {
         isRepetition: isRep,
         isNullable: isNull,
         isVariable: q ? q.isVariable : false,
-        nullableCount: nullCount
+        nullableCount: nullCount,
+        max: q ? q.max : 1
       });
       if (checkBranchConsecutiveNullable(curBranch)) return true;
     }
