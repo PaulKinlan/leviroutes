@@ -414,7 +414,20 @@ const routes = function(options) {
     // Intercept FORM submissions.
     window.addEventListener("submit", function(e) {
       if(e.target.method == "post") {
-        if (matchRoute(e.target.action, e)) {
+        var matched;
+        try {
+          matched = matchRoute(e.target.action, e);
+        } catch (err) {
+          // matchRoute only runs its middleware chain after a route matched, so a
+          // throw here belongs to a matched route's handler. Without this guard the
+          // error would unwind past preventDefault() and the browser would perform
+          // the native POST to the form action - potentially cross-origin - with
+          // the error visible only in the console (leviroutes-303). Prevent the
+          // native submit, then rethrow so the failure stays loud.
+          e.preventDefault();
+          throw err;
+        }
+        if (matched) {
            e.preventDefault();
            return false;
         }
