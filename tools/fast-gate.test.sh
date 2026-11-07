@@ -199,6 +199,15 @@ out_lock=$(run --list --changed package-lock.json)
 has "$out_lock" "tools/verify-package.mjs" "7c package-lock.json selects tools/verify-package.mjs"
 has "$out_lock" "spec/middleware.spec.mjs" "7d package-lock.json also selects test specs"
 
+# 7e-7h. The publish-gate inputs also select the gate self-tests: Section 4's fixtures derive from
+# the package contract and encode verify-package's messages, so the o71 no-build change to
+# package.json turned Section 4 red while the fast gate stayed green (leviroutes-3lm).
+has "$out" "tools/fast-gate.test.sh" "7e package.json selects the gate self-tests"
+has "$out_lock" "tools/fast-gate.test.sh" "7f package-lock.json selects the gate self-tests"
+out_verify=$(run --list --changed tools/verify-package.mjs)
+has "$out_verify" "tools/fast-gate.test.sh" "7g verify-package.mjs selects the gate self-tests"
+has "$out_verify" "spec/verifypackage-lifecycle.spec.mjs" "7h verify-package.mjs still selects its own specs"
+
 # 8. Stale map entry fails loudly
 cp "$ROOT/repo/tools/suite-map.tsv" "$ROOT/map.bak"
 printf 'src/routes.js\tspec/nonexistent.spec.mjs\n' > "$ROOT/repo/tools/suite-map.tsv"

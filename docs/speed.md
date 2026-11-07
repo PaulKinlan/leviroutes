@@ -35,12 +35,12 @@ Under representative VM load (load average 1–3), the full gate executes three 
 - Package condition export resolution in child processes (default import, browser condition, functional execution) (~0.6 s)
 
 ### Stage 2: Full Spec Suite (`npm test`) — ~40–45 s
-- 91 specs across 8 test suites (`spec/*.spec.mjs`)
+- 114 specs across 10 test suites (`spec/*.spec.mjs`, including `spec/verifypackage-lifecycle.spec.mjs` and `spec/verifypackage-registry.spec.mjs`)
 - **Fixture isolation constraint:** Every single spec constructs an isolated JSDOM instance (`spec/helpers/dom-helper.mjs`) to guarantee unwrapped `history.pushState` and zero listener leaks across specs (`spec/fixtureisolation.spec.mjs`). This intentional architectural isolation accounts for the ~40 s test execution time.
 
 ### Stage 3: Gate Tooling Self-Tests (`bash tools/fast-gate.test.sh`) — ~40 s
-*Counts below were recounted on 2026-10-26 against this tree: 94 assertions in total, matching the self-test's own `gate tooling tests: 94 passed, 0 failed` summary line. Recount after any edit to `tools/fast-gate.test.sh` with `bash tools/fast-gate.test.sh 2>&1 | awk '/=== Section 1/{s=1} /=== Section 2/{s=2} /=== Section 3/{s=3} /=== Section 4/{s=4} /^ *ok /{c[s]++} END{for(i=1;i<=4;i++) printf "Section %d: %d\n", i, c[i]}'` — a stale count here is a stale contract, because `tools/fast-gate.sh` and `tools/full-gate.sh` cite this document.*
-- **Section 1 (54 tests, ~3 s):** Selection mapping, fail-loud unmapped rejection, spec self-mapping, exemptions, `--list`, dead row rejection, and coverage contract conformance. Direct exit code capture eliminates 9 redundant runner child processes.
+*Counts below were recounted on 2026-11-07 against this tree: 98 assertions in total, matching the self-test's own `gate tooling tests: 98 passed, 0 failed` summary line. Recount after any edit to `tools/fast-gate.test.sh` with `bash tools/fast-gate.test.sh 2>&1 | awk '/=== Section 1/{s=1} /=== Section 2/{s=2} /=== Section 3/{s=3} /=== Section 4/{s=4} /^ *ok /{c[s]++} END{for(i=1;i<=4;i++) printf "Section %d: %d\n", i, c[i]}'` — a stale count here is a stale contract, because `tools/fast-gate.sh` and `tools/full-gate.sh` cite this document.*
+- **Section 1 (58 tests, ~3 s):** Selection mapping, fail-loud unmapped rejection, spec self-mapping, exemptions, `--list`, dead row rejection, and coverage contract conformance. Direct exit code capture eliminates 9 redundant runner child processes.
 - **Section 2 (11 tests, ~1 s):** `tools/check.conf` validation, drift detection, and `--install` stamping.
 - **Section 3 (6 tests, ~10 s):** `tools/full-gate.sh` step execution and failure loud-reporting orchestration.
 - **Section 4 (23 tests, ~26 s):** End-to-end publish lifecycle verification:
