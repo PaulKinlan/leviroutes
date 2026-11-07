@@ -102,6 +102,35 @@ describe("routing", function() {
     expect(seen).toEqual({ tag: "second" });
   });
 
+  it("should bound req.values to MAX_VALUES_COUNT distinct keys for form submissions", function() {
+    var seen = null;
+    r.post("/form-bulk", function(req) {
+      seen = req.values;
+    });
+
+    var form = document.createElement("form");
+    form.action = "/form-bulk";
+    form.method = "post";
+
+    for (var i = 0; i < 1100; i++) {
+      var input = document.createElement("input");
+      input.name = "k" + i;
+      input.value = "v" + i;
+      form.appendChild(input);
+    }
+
+    window.document.body.appendChild(form);
+
+    var e = new Event("submit", { bubbles: true, cancelable: true });
+    form.dispatchEvent(e);
+    window.document.body.removeChild(form);
+
+    expect(Object.keys(seen).length).toEqual(1024);
+    expect(seen["k0"]).toEqual("v0");
+    expect(seen["k1023"]).toEqual("v1023");
+    expect(seen["k1024"]).toBeUndefined();
+  });
+
   it("should not fall back to a native submit when a matched route's middleware throws", function() {
     var middlewareRan = false;
     var callbackRan = false;
