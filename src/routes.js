@@ -590,6 +590,9 @@ const routes = function(options) {
           if (innerAtom.isVariable && innerAtom.isRepetition) innerIsRep = true;
           if (innerAtom.isNullable) innerIsNull = true;
           if (innerAtom.isVariable) innerIsVariable = true;
+          if (innerAtom.isNullable && q && q.max !== undefined && q.max !== Infinity && q.max >= 8) {
+            return true;
+          }
         } else if (frameCanMatchEmpty) {
           innerIsNull = true;
         }
@@ -597,7 +600,8 @@ const routes = function(options) {
         if (isRep) {
           if (anyBranchHasInternal) return true;
           if (hasOverlappingAlt) return true;
-          if (innerIsRep) return true;
+          var isNestedRep = innerIsRep && (q.isVariable || (q.max !== undefined && q.max >= 8));
+          if (isNestedRep) return true;
           if (frameHasMultipleNullable) return true;
 
           for (var bIdx = 0; bIdx < finishedFrame.branches.length; bIdx++) {
@@ -654,6 +658,9 @@ const routes = function(options) {
                     }
                   }
                   if (!allOtherNullable) continue;
+                  if (!q.isVariable && q.max !== undefined && q.max < 8) {
+                    continue;
+                  }
                 }
 
                 if (atoms[j].isRepetition || atoms[k].isRepetition) {

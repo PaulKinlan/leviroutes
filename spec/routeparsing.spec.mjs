@@ -371,11 +371,27 @@ describe("route parsing", function() {
     }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
 
     expect(function() {
-      r.get("/:id((a+){2,2})", function(){});
+      r.get("/:id((a+){20})", function(){});
     }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
 
     expect(function() {
-      r.get("/:id((a+){20})", function(){});
+      r.get("/:id((?:a?){24})", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id((?:a?){32})", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id((a?){24})", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id((?:[0-9]?){24})", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id((?:a?){24,24})", function(){});
     }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
   });
 
@@ -491,5 +507,29 @@ describe("route parsing", function() {
     var r28 = new routes();
     r28.get("/:id((a+b){20})", function(){});
     expect(r28.getRoutes()[0].regex.regexp).toEqual(/^(?:\/((a+b){20}))$/);
+
+    var r29 = new routes();
+    r29.get("/:id((\\d+){2})", function(){});
+    expect(r29.getRoutes()[0].regex.regexp).toEqual(/^(?:\/((\d+){2}))$/);
+
+    var r30 = new routes();
+    r30.get("/:id((\\w+){2})", function(){});
+    expect(r30.getRoutes()[0].regex.regexp).toEqual(/^(?:\/((\w+){2}))$/);
+
+    var r31 = new routes();
+    r31.get("/:id(([a-z]+){3})", function(){});
+    expect(r31.getRoutes()[0].regex.regexp).toEqual(/^(?:\/(([a-z]+){3}))$/);
+
+    var r32 = new routes();
+    r32.get("/:id((\\d{1,3}){4})", function(){});
+    expect(r32.getRoutes()[0].regex.regexp).toEqual(/^(?:\/((\d{1,3}){4}))$/);
+
+    var r33 = new routes();
+    r33.get("/:id(([a-z]{2,3}){3})", function(){});
+    expect(r33.getRoutes()[0].regex.regexp).toEqual(/^(?:\/(([a-z]{2,3}){3}))$/);
+
+    var r34 = new routes();
+    r34.get("/:id((a+){2,2})", function(){});
+    expect(r34.getRoutes()[0].regex.regexp).toEqual(/^(?:\/((a+){2,2}))$/);
   });
 });
