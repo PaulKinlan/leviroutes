@@ -339,4 +339,30 @@ describe("routing", function() {
     r3.test("/run/123");
     expect(seen3).toEqual({ action: "run", id: "123" });
   });
+
+  it("should not match paths exceeding MAX_PATH_LENGTH", function() {
+    var matched = false;
+    r.get("/api/:endpoint", function() {
+      matched = true;
+    });
+
+    var longPath = "/api/" + "x".repeat(5000);
+    r.test(longPath);
+    expect(matched).toEqual(false);
+  });
+
+  it("should fail closed on dispatch when path exceeds MAX_PATH_LENGTH", function() {
+    var matched = false;
+    r.get("/test", function() {
+      matched = true;
+    });
+
+    var longUrl = "/test?" + "q=" + "a".repeat(5000);
+    // Path is short (/test), so query-string length does not reject the path:
+    expect(r.dispatch(longUrl)).toEqual(true);
+
+    // Path itself is oversized:
+    var longPathUrl = "/" + "a".repeat(5000);
+    expect(r.dispatch(longPathUrl)).toEqual(false);
+  });
 });

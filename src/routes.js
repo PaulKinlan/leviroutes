@@ -26,11 +26,120 @@ const routes = function(options) {
   // Reserved TLD: matching never looks at the host in this mode, so this cannot collide.
   var URLPATTERN_ORIGIN = "http://leviroutes.invalid";
 
+  // Maximum lengths to bound route pattern compilation and path evaluation
+  // against ReDoS or unbounded input attacks (tm-unbounded-pattern-eval-on-untrusted-path).
+  var MAX_PATTERN_LENGTH = 2048;
+  var MAX_PATH_LENGTH = 4096;
+
   var urlPatternCtor = function() {
     if (typeof globalThis !== "undefined" && globalThis.URLPattern) return globalThis.URLPattern;
     if (typeof window !== "undefined" && window.URLPattern) return window.URLPattern;
 
     return null;
+  };
+
+  // Validates custom regex groups in URLPattern syntax for regular expression validity
+  // and cross-engine parity (tm-urlpattern-custom-groups-unvalidated).
+  var validateUrlPatternGroups = function(path) {
+    var escaped = false;
+    for (var i = 0; i < path.length; i++) {
+      var c = path[i];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (c === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (c === "(") {
+        var start = i + 1;
+        var depth = 1;
+        var innerEscaped = false;
+        var innerInCharClass = false;
+        var end = -1;
+        for (var j = start; j < path.length; j++) {
+          var ch = path[j];
+          if (innerEscaped) {
+            innerEscaped = false;
+            continue;
+          }
+          if (ch === "\\") {
+            innerEscaped = true;
+            continue;
+          }
+          if (innerInCharClass) {
+            if (ch === "]") innerInCharClass = false;
+            continue;
+          }
+          if (ch === "[") {
+            innerInCharClass = true;
+            continue;
+          }
+          if (ch === "(") {
+            depth++;
+          } else if (ch === ")") {
+            depth--;
+            if (depth === 0) {
+              end = j;
+              break;
+            }
+          }
+        }
+        if (end === -1) {
+          throw new Error("leviroutes: route " + JSON.stringify(path) +
+            " contains unclosed '(' in custom regex group");
+        }
+
+        var inner = path.slice(start, end);
+
+        // Check for engine parity: Firefox < 149 does not support lookahead/lookbehind
+        // assertions inside custom regex groups (Bugzilla 1998871; docs/urlpattern-investigation.md).
+        if (inner[0] === "?" && (inner[1] === "=" || inner[1] === "!" || inner.slice(1, 3) === "<=" || inner.slice(1, 3) === "<!")) {
+          throw new Error("leviroutes: route " + JSON.stringify(path) +
+            " uses lookaround assertion in custom regex group which lacks cross-engine parity in URLPattern");
+        }
+
+        var lookaroundEscaped = false;
+        var lookaroundInCharClass = false;
+        for (var k = 0; k < inner.length; k++) {
+          var ik = inner[k];
+          if (lookaroundEscaped) {
+            lookaroundEscaped = false;
+            continue;
+          }
+          if (ik === "\\") {
+            lookaroundEscaped = true;
+            continue;
+          }
+          if (lookaroundInCharClass) {
+            if (ik === "]") lookaroundInCharClass = false;
+            continue;
+          }
+          if (ik === "[") {
+            lookaroundInCharClass = true;
+            continue;
+          }
+          if (ik === "(" && inner[k + 1] === "?") {
+            var next2 = inner.slice(k + 2, k + 4);
+            if (next2[0] === "=" || next2[0] === "!" || next2 === "<=" || next2 === "<!") {
+              throw new Error("leviroutes: route " + JSON.stringify(path) +
+                " uses lookaround assertion in custom regex group which lacks cross-engine parity in URLPattern");
+            }
+          }
+        }
+
+        // Validate regular expression syntax
+        try {
+          new RegExp("(" + inner + ")");
+        } catch (e) {
+          throw new Error("leviroutes: custom regex group in route " + JSON.stringify(path) +
+            " is not a valid regular expression: " + e.message);
+        }
+
+        i = end;
+      }
+    }
   };
 
   // Compiled shape for the urlpattern matcher: { pattern, groups, regexp: null }.
@@ -42,6 +151,8 @@ const routes = function(options) {
       throw new Error("leviroutes: the 'urlpattern' matcher needs the URL Pattern API " +
         "(available natively in current browsers and Node 24+, or via urlpattern-polyfill)");
     }
+
+    validateUrlPatternGroups(path);
 
     try {
       // Path-only patterns keep host and protocol wildcards, so a bare pathname from
@@ -117,7 +228,62 @@ const routes = function(options) {
     return out;
   };
 
+  // Audits the assembled route regex body to ensure no unmatched ')' can escape
+  // the outer ^(?:...)$ wrapper and unanchor subsequent alternatives or prefixes
+  // (tm-anchor-wrapper-escapable-by-route-text, leviroutes-bym, leviroutes-2io).
+  var auditRouteStructure = function(body, originalPath) {
+    var depth = 0;
+    var inCharClass = false;
+    var escaped = false;
+    for (var i = 0; i < body.length; i++) {
+      var c = body[i];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (c === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (inCharClass) {
+        if (c === "]") inCharClass = false;
+        continue;
+      }
+      if (c === "[") {
+        inCharClass = true;
+        continue;
+      }
+      if (c === "(") {
+        depth++;
+      } else if (c === ")") {
+        depth--;
+        if (depth < 0) {
+          throw new Error("leviroutes: route " + JSON.stringify(originalPath) +
+            " contains unmatched ')' that alters route anchoring");
+        }
+      }
+    }
+    if (depth !== 0) {
+      throw new Error("leviroutes: route " + JSON.stringify(originalPath) +
+        " contains unclosed '(' in route pattern");
+    }
+    try {
+      new RegExp(body);
+    } catch (err) {
+      throw new Error("leviroutes: route " + JSON.stringify(originalPath) +
+        " is not a valid regular expression: " + err.message);
+    }
+  };
+
   this.parseRoute = function(path) {
+    if (typeof path !== "string") {
+      throw new Error("leviroutes: route pattern must be a string");
+    }
+    if (path.length > MAX_PATTERN_LENGTH) {
+      throw new Error("leviroutes: route pattern exceeds maximum length of " +
+        MAX_PATTERN_LENGTH + " characters");
+    }
+
     if (matcherKind === "urlpattern") return compileUrlPattern(path);
 
     this.parseGroups = function(loc) {
@@ -155,6 +321,13 @@ const routes = function(options) {
       }
 
       var tail = loc.slice(lastIndex);
+      var body = newRegexp + escapeUnescapedDots(tail);
+
+      // Audit the assembled body: verify parenthesis nesting so an unescaped ')'
+      // inside route text cannot close the ^(?:...)$ wrapper early and unanchor
+      // subsequent alternatives or prefixes (leviroutes-bym, leviroutes-2io).
+      auditRouteStructure(body, loc);
+
       // Match the whole path: end-anchored so '/category' does not match
       // '/category/extra', start-anchored so '/user/:id' does not match '/deep/user/42'
       // (the old end-only anchor was an accident that made every route a suffix match).
@@ -162,7 +335,7 @@ const routes = function(options) {
       // a bare "^" + route + "$" makes §/index.html|/§ compile to /^\/index\.html|\/$/,
       // which also matches '/x/' - a path neither alternative names (leviroutes-bym). The
       // group is non-capturing, so every recorded group index in 'groups' is unchanged.
-      newRegexp = "^(?:" + newRegexp + escapeUnescapedDots(tail) + ")$"; 
+      newRegexp = "^(?:" + body + ")$"; 
 
       return { "groups" : groups, "regexp": new RegExp(newRegexp)};
     };
@@ -179,6 +352,7 @@ const routes = function(options) {
   // stop POST interception working, which the end-only anchor used to hide.
   var pathnameOf = function(url) {
     if (typeof url !== "string") return url;
+    if (url.length > MAX_PATH_LENGTH * 2) return "";
 
     try {
       var base = (typeof document !== "undefined" && document.baseURI) || "http://localhost/";
@@ -191,6 +365,9 @@ const routes = function(options) {
   var matchRoute = function(url, e, server) {
     var route = null;
     var path = pathnameOf(url);
+    if (typeof path !== "string" || path.length > MAX_PATH_LENGTH) {
+      return false;
+    }
     for(var i = 0; route = _routes[i]; i ++) {
       var params = null;
 

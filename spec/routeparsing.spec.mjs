@@ -124,4 +124,44 @@ describe("route parsing", function() {
       r.get("/item/:id(?=[0-9]+)", function(){});
     }).toThrowError("custom pattern for :id contains no capturing group");
   });
+
+  it("should throw an error when route pattern exceeds maximum length", function() {
+    var longRoute = "/" + "a".repeat(2049);
+    expect(function() {
+      r.get(longRoute, function(){});
+    }).toThrowError(/route pattern exceeds maximum length of 2048 characters/);
+  });
+
+  it("should throw an error when a route contains an unmatched ')' that would alter wrapper anchoring", function() {
+    expect(function() {
+      r.get("/a)|b", function(){});
+    }).toThrowError(/contains unmatched '\)' that alters route anchoring/);
+
+    expect(function() {
+      r.get("/a)|(?:b", function(){});
+    }).toThrowError(/contains unmatched '\)' that alters route anchoring/);
+
+    expect(function() {
+      r.get("/prefix)/:id", function(){});
+    }).toThrowError(/contains unmatched '\)' that alters route anchoring/);
+  });
+
+  it("should throw an error when a route contains unclosed '(' in route pattern", function() {
+    expect(function() {
+      r.get("/a(", function(){});
+    }).toThrowError(/contains unclosed '\(' in route pattern/);
+
+    expect(function() {
+      r.get("/a/(?:b", function(){});
+    }).toThrowError(/contains unclosed '\(' in route pattern/);
+  });
+
+  it("should allow escaped parentheses and parentheses inside character classes without altering route anchoring", function() {
+    r.get("/a\\)/b", function(){});
+    expect(r.getRoutes()[0].regex.regexp).toEqual(/^(?:\/a\)\/b)$/);
+
+    var r2 = new routes();
+    r2.get("/a[)]/b", function(){});
+    expect(r2.getRoutes()[0].regex.regexp).toEqual(/^(?:\/a[)]\/b)$/);
+  });
 });
