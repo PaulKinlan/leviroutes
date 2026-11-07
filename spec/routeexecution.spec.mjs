@@ -357,12 +357,33 @@ describe("routing", function() {
       matched = true;
     });
 
-    var longUrl = "/test?" + "q=" + "a".repeat(5000);
-    // Path is short (/test), so query-string length does not reject the path:
-    expect(r.dispatch(longUrl)).toEqual(true);
-
     // Path itself is oversized:
     var longPathUrl = "/" + "a".repeat(5000);
     expect(r.dispatch(longPathUrl)).toEqual(false);
+  });
+
+  it("should match valid short paths even when query string is large (> 8192 chars)", function() {
+    var hit = null;
+    var r2 = new routes();
+    r2.get("/search", function() {
+      hit = "search";
+    });
+
+    // Query string is over 8192 chars, but pathname is /search:
+    var longQueryUrl = "/search?" + "q=" + "a".repeat(9000);
+    expect(r2.dispatch(longQueryUrl)).toEqual(true);
+    expect(hit).toEqual("search");
+  });
+
+  it("should not match a catch-all route when path is oversized", function() {
+    var hit = null;
+    var r3 = new routes();
+    r3.get("(.*)", function() {
+      hit = "catchall";
+    });
+
+    var oversizedPath = "/" + "a".repeat(5000);
+    expect(r3.dispatch(oversizedPath)).toEqual(false);
+    expect(hit).toEqual(null);
   });
 });

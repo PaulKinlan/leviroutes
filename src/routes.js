@@ -31,6 +31,12 @@ const routes = function(options) {
   var MAX_PATTERN_LENGTH = 2048;
   var MAX_PATH_LENGTH = 4096;
 
+  // Helper to detect nested quantifiers like (a+)+, (a*)*, or (a+){2,} that trigger
+  // catastrophic backtracking in regular expressions (tm-unbounded-pattern-eval-on-untrusted-path).
+  var hasNestedQuantifiers = function(pattern) {
+    return /(\([^\\)]*?[+*][^\\)]*?\))[+*{]/.test(pattern);
+  };
+
   var urlPatternCtor = function() {
     if (typeof globalThis !== "undefined" && globalThis.URLPattern) return globalThis.URLPattern;
     if (typeof window !== "undefined" && window.URLPattern) return window.URLPattern;
@@ -98,6 +104,11 @@ const routes = function(options) {
         if (inner[0] === "?" && (inner[1] === "=" || inner[1] === "!" || inner.slice(1, 3) === "<=" || inner.slice(1, 3) === "<!")) {
           throw new Error("leviroutes: route " + JSON.stringify(path) +
             " uses lookaround assertion in custom regex group which lacks cross-engine parity in URLPattern");
+        }
+
+        if (hasNestedQuantifiers(inner)) {
+          throw new Error("leviroutes: route " + JSON.stringify(path) +
+            " contains nested quantifiers in custom regex group susceptible to catastrophic backtracking");
         }
 
         var lookaroundEscaped = false;
@@ -267,6 +278,10 @@ const routes = function(options) {
       throw new Error("leviroutes: route " + JSON.stringify(originalPath) +
         " contains unclosed '(' in route pattern");
     }
+    if (hasNestedQuantifiers(body)) {
+      throw new Error("leviroutes: route " + JSON.stringify(originalPath) +
+        " contains nested quantifiers in custom regex group susceptible to catastrophic backtracking");
+    }
     try {
       new RegExp(body);
     } catch (err) {
@@ -352,7 +367,6 @@ const routes = function(options) {
   // stop POST interception working, which the end-only anchor used to hide.
   var pathnameOf = function(url) {
     if (typeof url !== "string") return url;
-    if (url.length > MAX_PATH_LENGTH * 2) return "";
 
     try {
       var base = (typeof document !== "undefined" && document.baseURI) || "http://localhost/";

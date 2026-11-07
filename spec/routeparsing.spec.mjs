@@ -164,4 +164,14 @@ describe("route parsing", function() {
     r2.get("/a[)]/b", function(){});
     expect(r2.getRoutes()[0].regex.regexp).toEqual(/^(?:\/a[)]\/b)$/);
   });
+
+  it("should reject custom regex groups containing nested quantifiers susceptible to catastrophic backtracking", function() {
+    expect(function() {
+      r.get("/x/:id((a+)+b)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/x/:id((a*)*)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+  });
 });

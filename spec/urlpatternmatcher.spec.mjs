@@ -168,6 +168,10 @@ describe("urlpattern matcher (opt-in)", function() {
     expect(function() {
       app.get("/items/:id([0-9+)", function(){});
     }).toThrowError(/contains unclosed '\(' in custom regex group/);
+
+    expect(function() {
+      app.get("/items/:id((a+)+b)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
   });
 
   it("does not match paths exceeding MAX_PATH_LENGTH in urlpattern matcher", function() {
