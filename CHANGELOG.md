@@ -84,7 +84,7 @@ row below was checked against both `1.0.0` and this tree with `app.test()`.
 Catch-alls are the one case where the default matcher is now clumsy: because every unescaped `.` in a
 route is literal, `[^]*` ("any character, any number of times") is how you spell one. If you need
 segment-shaped wildcards, the opt-in `matcher: "urlpattern"` mode is the supported route forward; see
-[`docs/urlpattern-investigation.md`](https://github.com/PaulKinlan/leviroutes/blob/main/docs/urlpattern-investigation.md).
+[`docs/urlpattern-investigation.md`](https://github.com/PaulKinlan/leviroutes/blob/master/docs/urlpattern-investigation.md).
 
 If you cannot change the route strings yet, stay on `1.0.0`.
 
