@@ -658,7 +658,7 @@ const routes = function(options) {
             // Check intra-branch reachable overlaps
             for (var j = 0; j < atoms.length; j++) {
               for (var k = j + 1; k < atoms.length; k++) {
-                if (atoms[j].isRepetition || atoms[k].isRepetition) {
+                if (atoms[j].isRepetition || atoms[k].isRepetition || atoms[j].isVariable || atoms[k].isVariable) {
                   var reachable = true;
                   for (var mid = j + 1; mid < k; mid++) {
                     if (!atoms[mid].isNullable) {
@@ -716,7 +716,7 @@ const routes = function(options) {
                   }
                 }
 
-                if (atoms[j].isRepetition || atoms[k].isRepetition) {
+                if (atoms[j].isRepetition || atoms[k].isRepetition || atoms[j].isVariable || atoms[k].isVariable) {
                   if (branchesOverlap(atoms[j].text, atoms[k].text)) {
                     if (!q.isVariable && q.max !== undefined && q.max < 8) {
                       var jUnbounded = atoms[j].max === undefined || atoms[j].max === Infinity;

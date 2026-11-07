@@ -275,6 +275,26 @@ describe("route parsing", function() {
     }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
 
     expect(function() {
+      r.get("/:id((\\d\\d?)+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id(([a-z][a-z]?)+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id(([0-9][0-9]?)+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id(([0-9][0-9]{0,1})+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id((..?)+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
       r.get("/:id(([a-z]|[a-z]{2})+)", function(){});
     }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
 
