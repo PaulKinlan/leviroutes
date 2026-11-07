@@ -6,6 +6,7 @@
     "spec/routemanagement.spec.mjs",
     "spec/routeparsing.spec.mjs",
     "spec/routesframework.spec.mjs",
+    "tools/fast-gate.test.sh",
     "tools/verify-package.mjs"
   ],
   "package.json": [
@@ -15,6 +16,7 @@
     "spec/routemanagement.spec.mjs",
     "spec/routeparsing.spec.mjs",
     "spec/routesframework.spec.mjs",
+    "tools/fast-gate.test.sh",
     "tools/verify-package.mjs"
   ],
   "src/routes.js": [
@@ -50,8 +52,9 @@
     "tools/fast-gate.test.sh"
   ],
   "tools/verify-package.mjs": [
-    "tools/verify-package.mjs",
+    "spec/verifypackage-lifecycle.spec.mjs",
     "spec/verifypackage-registry.spec.mjs",
-    "spec/verifypackage-lifecycle.spec.mjs"
+    "tools/fast-gate.test.sh",
+    "tools/verify-package.mjs"
   ]
 }
