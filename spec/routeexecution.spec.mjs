@@ -73,6 +73,35 @@ describe("routing", function() {
     expect(e.defaultPrevented).toEqual(true);
   });
 
+  it("should populate req.values with last-wins semantics for duplicate form field names", function() {
+    var seen = null;
+    r.post("/tags", function(req) {
+      seen = req.values;
+    });
+
+    var form = document.createElement("form");
+    form.action = "/tags";
+    form.method = "post";
+
+    var input1 = document.createElement("input");
+    input1.name = "tag";
+    input1.value = "first";
+    form.appendChild(input1);
+
+    var input2 = document.createElement("input");
+    input2.name = "tag";
+    input2.value = "second";
+    form.appendChild(input2);
+
+    window.document.body.appendChild(form);
+
+    var e = new Event("submit", { bubbles: true, cancelable: true });
+    form.dispatchEvent(e);
+    window.document.body.removeChild(form);
+
+    expect(seen).toEqual({ tag: "second" });
+  });
+
   it("should not fall back to a native submit when a matched route's middleware throws", function() {
     var middlewareRan = false;
     var callbackRan = false;
