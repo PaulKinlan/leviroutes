@@ -245,6 +245,30 @@ describe("route parsing", function() {
     expect(function() {
       r.get("/:id((\\w+\\s?)+)", function(){});
     }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id((a+a)+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id((\\d+\\d)+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id(([a-z]+[a-z])+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id((.+.)+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id((.*\\s)+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/:id((\\s*,\\s*)+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
   });
 
   it("should accept linear non-catastrophic custom patterns without false rejection", function() {
@@ -307,5 +331,25 @@ describe("route parsing", function() {
     var r15 = new routes();
     r15.get("/:v(v?[0-9]+(?:\\.[0-9]+)*)", function(){});
     expect(r15.getRoutes()[0].regex.regexp).toEqual(/^(?:\/(v?[0-9]+(?:\.[0-9]+)*))$/);
+
+    var r16 = new routes();
+    r16.get("/:id((\\w+\\s)+)", function(){});
+    expect(r16.getRoutes()[0].regex.regexp).toEqual(/^(?:\/((\w+\s)+))$/);
+
+    var r17 = new routes();
+    r17.get("/:x((apple|apricot)+)", function(){});
+    expect(r17.getRoutes()[0].regex.regexp).toEqual(/^(?:\/((apple|apricot)+))$/);
+
+    var r18 = new routes();
+    r18.get("/:name([A-Za-z]+(?:[ -][A-Za-z]+)*)", function(){});
+    expect(r18.getRoutes()[0].regex.regexp).toEqual(/^(?:\/([A-Za-z]+(?:[ -][A-Za-z]+)*))$/);
+
+    var r19 = new routes();
+    r19.get("/:ip(\\d{1,3}(?:\\.\\d{1,3}){3})", function(){});
+    expect(r19.getRoutes()[0].regex.regexp).toEqual(/^(?:\/(\d{1,3}(?:\.\d{1,3}){3}))$/);
+
+    var r20 = new routes();
+    r20.get("/:date(\\d{4}-\\d{2}-\\d{2})", function(){});
+    expect(r20.getRoutes()[0].regex.regexp).toEqual(/^(?:\/(\d{4}-\d{2}-\d{2}))$/);
   });
 });

@@ -149,17 +149,14 @@ const routes = function(options) {
   // Parse-aware helper to detect nested quantifiers and overlapping repeated alternations
   // that trigger catastrophic backtracking in regular expressions (tm-unbounded-pattern-eval-on-untrusted-path,
   // leviroutes-njt, leviroutes-39k, leviroutes-1hs, leviroutes-vsu, leviroutes-8sb, leviroutes-aqt, leviroutes-0yz,
-  // leviroutes-a8b, leviroutes-l45, leviroutes-bwv, leviroutes-ur3).
+  // leviroutes-a8b, leviroutes-l45, leviroutes-bwv, leviroutes-ur3, leviroutes-kyk, leviroutes-e4f).
   var hasNestedQuantifiers = function(pattern) {
     var newBranch = function(startIdx) {
       return {
-        atomCount: 0,
-        repetitionCount: 0,
-        otherMandatoryCount: 0,
-        hasUnseparatedRepetition: false,
+        atoms: [],
         startIdx: startIdx,
-        hasOverlappingAlternation: false,
-        branchText: ""
+        branchText: "",
+        hasInternalReDoS: false
       };
     };
     var newFrame = function() {
@@ -170,29 +167,60 @@ const routes = function(options) {
     var currentFrame = newFrame();
     var inCharClass = false;
     var escaped = false;
+    var atomStart = 0;
 
     for (var i = 0; i < pattern.length; i++) {
       var c = pattern[i];
       if (escaped) {
         escaped = false;
-        var b = currentFrame.branches[currentFrame.branches.length - 1];
-        b.atomCount++;
-        b.otherMandatoryCount++;
+        var curBranch = currentFrame.branches[currentFrame.branches.length - 1];
+        var q = parseQuantifierToken(pattern, i + 1);
+        var end = i;
+        var isRep = false;
+        var isNull = false;
+        if (q) {
+          isRep = q.isRepetition;
+          isNull = q.isNullable;
+          end = q.end;
+          i = q.end;
+        }
+        curBranch.atoms.push({
+          text: pattern.slice(atomStart, end + 1),
+          isRepetition: isRep,
+          isNullable: isNull
+        });
         continue;
       }
       if (c === "\\") {
         escaped = true;
+        atomStart = i;
         continue;
       }
       if (inCharClass) {
-        if (c === "]") inCharClass = false;
+        if (c === "]") {
+          inCharClass = false;
+          var curBranch = currentFrame.branches[currentFrame.branches.length - 1];
+          var q = parseQuantifierToken(pattern, i + 1);
+          var end = i;
+          var isRep = false;
+          var isNull = false;
+          if (q) {
+            isRep = q.isRepetition;
+            isNull = q.isNullable;
+            end = q.end;
+            i = q.end;
+          }
+          curBranch.atoms.push({
+            text: pattern.slice(atomStart, end + 1),
+            isRepetition: isRep,
+            isNullable: isNull
+          });
+        }
         continue;
       }
       if (c === "[") {
         inCharClass = true;
-        var b = currentFrame.branches[currentFrame.branches.length - 1];
-        b.atomCount++;
-        b.otherMandatoryCount++;
+        atomStart = i;
         continue;
       }
       if (c === "(") {
@@ -206,33 +234,18 @@ const routes = function(options) {
       if (c === "|") {
         var prevBranch = currentFrame.branches[currentFrame.branches.length - 1];
         prevBranch.branchText = pattern.slice(prevBranch.startIdx, i);
-        if (prevBranch.repetitionCount > 0 && prevBranch.otherMandatoryCount <= 0) {
-          prevBranch.hasUnseparatedRepetition = true;
-        }
         currentFrame.branches.push(newBranch(i + 1));
         continue;
       }
       if (c === ")") {
         var lastBranch = currentFrame.branches[currentFrame.branches.length - 1];
         lastBranch.branchText = pattern.slice(lastBranch.startIdx, i);
-        if (lastBranch.repetitionCount > 0 && lastBranch.otherMandatoryCount <= 0) {
-          lastBranch.hasUnseparatedRepetition = true;
-        }
 
         var finishedFrame = currentFrame;
         currentFrame = stack.pop() || newFrame();
         var currentBranch = currentFrame.branches[currentFrame.branches.length - 1];
-        currentBranch.atomCount++;
-        currentBranch.otherMandatoryCount++;
 
-        var frameHasUnseparatedRep = false;
-        for (var f = 0; f < finishedFrame.branches.length; f++) {
-          if (finishedFrame.branches[f].hasUnseparatedRepetition) {
-            frameHasUnseparatedRep = true;
-            break;
-          }
-        }
-
+        // Check for overlapping alternations in finished frame
         var hasOverlappingAlt = false;
         if (finishedFrame.branches.length > 1) {
           for (var j = 0; j < finishedFrame.branches.length; j++) {
@@ -244,50 +257,135 @@ const routes = function(options) {
             }
             if (hasOverlappingAlt) break;
           }
-        } else if (finishedFrame.branches[0].hasOverlappingAlternation) {
-          hasOverlappingAlt = true;
         }
 
-        if (hasOverlappingAlt) {
-          currentBranch.hasOverlappingAlternation = true;
+        var anyBranchHasInternal = false;
+        for (var f = 0; f < finishedFrame.branches.length; f++) {
+          if (finishedFrame.branches[f].hasInternalReDoS) {
+            anyBranchHasInternal = true;
+            break;
+          }
+        }
+
+        if (hasOverlappingAlt || anyBranchHasInternal) {
+          currentBranch.hasInternalReDoS = true;
         }
 
         var q = parseQuantifierToken(pattern, i + 1);
+        var end = i;
+        var isRep = false;
+        var isNull = false;
         if (q) {
-          if (q.isNullable || q.isRepetition) {
-            currentBranch.otherMandatoryCount = Math.max(0, currentBranch.otherMandatoryCount - 1);
-          }
-          if (q.isRepetition) {
-            currentBranch.repetitionCount++;
-            if (frameHasUnseparatedRep) return true;
-            if (hasOverlappingAlt) return true;
-            currentBranch.hasUnseparatedRepetition = true;
-          } else if (frameHasUnseparatedRep && finishedFrame.branches.length === 1 && finishedFrame.branches[0].otherMandatoryCount <= 0) {
-            currentBranch.hasUnseparatedRepetition = true;
-          }
+          isRep = q.isRepetition;
+          isNull = q.isNullable;
+          end = q.end;
           i = q.end;
-        } else if (frameHasUnseparatedRep && finishedFrame.branches.length === 1 && finishedFrame.branches[0].otherMandatoryCount <= 0) {
-          currentBranch.hasUnseparatedRepetition = true;
         }
+
+        var innerIsRep = false;
+        var innerIsNull = false;
+        if (finishedFrame.branches.length === 1 && finishedFrame.branches[0].atoms.length === 1) {
+          var innerAtom = finishedFrame.branches[0].atoms[0];
+          if (innerAtom.isRepetition) innerIsRep = true;
+          if (innerAtom.isNullable) innerIsNull = true;
+        }
+
+        if (isRep) {
+          if (anyBranchHasInternal) return true;
+          if (hasOverlappingAlt) return true;
+          if (innerIsRep) return true;
+
+          for (var bIdx = 0; bIdx < finishedFrame.branches.length; bIdx++) {
+            var branch = finishedFrame.branches[bIdx];
+            var atoms = branch.atoms;
+            if (atoms.length === 0) continue;
+
+            // Check intra-branch reachable overlaps
+            for (var j = 0; j < atoms.length; j++) {
+              for (var k = j + 1; k < atoms.length; k++) {
+                if (atoms[j].isRepetition || atoms[k].isRepetition) {
+                  var reachable = true;
+                  for (var mid = j + 1; mid < k; mid++) {
+                    if (!atoms[mid].isNullable) {
+                      reachable = false;
+                      break;
+                    }
+                  }
+                  if (reachable && branchesOverlap(atoms[j].text, atoms[k].text)) {
+                    return true;
+                  }
+                }
+                if (!atoms[k].isNullable) break;
+              }
+            }
+
+            // Check wrap-around overlap across iterations
+            for (var j = 0; j < atoms.length; j++) {
+              var canReachEnd = true;
+              for (var trail = j + 1; trail < atoms.length; trail++) {
+                if (!atoms[trail].isNullable) {
+                  canReachEnd = false;
+                  break;
+                }
+              }
+              if (!canReachEnd) continue;
+
+              for (var k = 0; k < atoms.length; k++) {
+                var canReachFromStart = true;
+                for (var lead = 0; lead < k; lead++) {
+                  if (!atoms[lead].isNullable) {
+                    canReachFromStart = false;
+                    break;
+                  }
+                }
+                if (!canReachFromStart) continue;
+
+                if (j === k) {
+                  var allOtherNullable = true;
+                  for (var o = 0; o < atoms.length; o++) {
+                    if (o !== j && !atoms[o].isNullable) {
+                      allOtherNullable = false;
+                      break;
+                    }
+                  }
+                  if (!allOtherNullable) continue;
+                }
+
+                if (atoms[j].isRepetition || atoms[k].isRepetition) {
+                  if (branchesOverlap(atoms[j].text, atoms[k].text)) {
+                    return true;
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        currentBranch.atoms.push({
+          text: pattern.slice(atomStart, end + 1),
+          isRepetition: isRep || innerIsRep,
+          isNullable: isNull || innerIsNull
+        });
         continue;
       }
 
-      var token = parseQuantifierToken(pattern, i);
-      if (token) {
-        var b = currentFrame.branches[currentFrame.branches.length - 1];
-        if (token.isNullable || token.isRepetition) {
-          b.otherMandatoryCount = Math.max(0, b.otherMandatoryCount - 1);
-        }
-        if (token.isRepetition) {
-          b.repetitionCount++;
-        }
-        i = token.end;
-        continue;
+      atomStart = i;
+      var q = parseQuantifierToken(pattern, i + 1);
+      var end = i;
+      var isRep = false;
+      var isNull = false;
+      if (q) {
+        isRep = q.isRepetition;
+        isNull = q.isNullable;
+        end = q.end;
+        i = q.end;
       }
-
-      var b = currentFrame.branches[currentFrame.branches.length - 1];
-      b.atomCount++;
-      b.otherMandatoryCount++;
+      var curBranch = currentFrame.branches[currentFrame.branches.length - 1];
+      curBranch.atoms.push({
+        text: pattern.slice(atomStart, end + 1),
+        isRepetition: isRep,
+        isNullable: isNull
+      });
     }
 
     return false;
