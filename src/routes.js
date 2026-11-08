@@ -1422,15 +1422,51 @@ const routes = function(options) {
 
       var abortChain = function() { aborted = true; };
 
+      // leviroutes-pxcx: the browser submit path wraps matchRoute() in try/catch because an
+      // exception unwinding past preventDefault() made the browser perform a native POST
+      // (leviroutes-303). The server path had no equivalent, so a throwing handler or middleware
+      // propagated into the http request listener: Node kills the process by default, or an
+      // app-level catch leaves the response unwritten and the socket hanging. Settle the response
+      // first (a 500 the caller can actually send), then rethrow so the failure stays loud.
+      var responseSettled = function() {
+        var response = server.response;
+        if (!response) return true;
+        return !!(response.headersSent || response.writableEnded || response.finished);
+      };
+
+      var settleWithServerError = function() {
+        var response = server.response;
+        if (!response || responseSettled()) return;
+        try {
+          if (typeof response.writeHead === "function") {
+            response.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+          }
+          if (typeof response.end === "function") response.end("Internal Server Error");
+        } catch (writeError) {
+          // The response was already unusable (destroyed, or a Fetch Response): nothing to
+          // settle, and the original handler error is the one worth reporting.
+        }
+      };
+
+      var invokeHandler = function(fn) {
+        if (!server) return fn();
+        try {
+          return fn();
+        } catch (handlerError) {
+          settleWithServerError();
+          throw handlerError;
+        }
+      };
+
       var advanceChain = function() {
         if (aborted || handled) return;
         if (middlewareIndex < _middleware.length) {
           var middleware = _middleware[middlewareIndex++];
-          middleware(req, makeStageNext());
+          invokeHandler(function() { middleware(req, makeStageNext()); });
         } else {
           // All middleware executed, call the route callback
           handled = true;
-          route.callback(req);
+          invokeHandler(function() { route.callback(req); });
         }
       };
 
