@@ -1421,6 +1421,7 @@ const routes = function(options) {
       var handled = false;
 
       var abortChain = function() { aborted = true; };
+      var inDispatchFrame = !!server;
 
       // leviroutes-pxcx: the browser submit path wraps matchRoute() in try/catch because an
       // exception unwinding past preventDefault() made the browser perform a native POST
@@ -1448,13 +1449,35 @@ const routes = function(options) {
         }
       };
 
+      // leviroutes-llq8: a deferred next() (setTimeout, awaited promise) is a supported pattern,
+      // and a throw from that later frame lands in the TIMER's context, where no app-level
+      // try/catch around dispatch() can see it - so rethrowing there is an uncaughtException that
+      // kills the process even though the 500 has already been settled. Track whether we are still
+      // inside the dispatch() call frame: inside it, settle and rethrow (the caller can catch);
+      // outside it, settle and record the failure on req.error, which is the only surface left.
+      var containHandlerError = function(handlerError, rethrow) {
+        settleWithServerError();
+        req.error = handlerError;
+        // An app usually holds the raw request object, not the routes one, so record the failure
+        // there too: it is the only way to observe an error whose frame nobody could catch.
+        try {
+          if (server.request && typeof server.request === "object") server.request.error = handlerError;
+        } catch (recordError) { /* frozen or exotic request object: req.error still has it */ }
+        if (rethrow) throw handlerError;
+      };
+
       var invokeHandler = function(fn) {
         if (!server) return fn();
         try {
-          return fn();
+          var result = fn();
+          // An async handler's rejection surfaces after this frame has ended, so the same rule
+          // applies: settle the response and record, never rethrow into a promise nobody awaits.
+          if (result && typeof result.then === "function") {
+            result.then(undefined, function(handlerError) { containHandlerError(handlerError, false); });
+          }
+          return result;
         } catch (handlerError) {
-          settleWithServerError();
-          throw handlerError;
+          containHandlerError(handlerError, inDispatchFrame);
         }
       };
 
@@ -1462,11 +1485,12 @@ const routes = function(options) {
         if (aborted || handled) return;
         if (middlewareIndex < _middleware.length) {
           var middleware = _middleware[middlewareIndex++];
-          invokeHandler(function() { middleware(req, makeStageNext()); });
+          invokeHandler(function() { return middleware(req, makeStageNext()); });
         } else {
           // All middleware executed, call the route callback
           handled = true;
-          invokeHandler(function() { route.callback(req); });
+          // Return the callback's value so invokeHandler can contain an async handler's rejection.
+          invokeHandler(function() { return route.callback(req); });
         }
       };
 
@@ -1495,8 +1519,10 @@ const routes = function(options) {
       // handled: a late abort afterwards cannot un-handle an executed route.
       var next = makeStageNext();
 
-      // Start middleware execution
+      // Start middleware execution. Anything that advances the chain AFTER this call returns is
+      // deferred, so errors from it can only be contained, not rethrown (leviroutes-llq8).
       next();
+      inDispatchFrame = false;
 
       return !server || handled || !aborted || !!(server.response &&
         (server.response.headersSent || server.response.writableEnded || server.response.finished));
