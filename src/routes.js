@@ -540,6 +540,18 @@ const routes = function(options) {
     // (\d{1,3}){4} = 81, ([a-z]{2,3}){3} = 27 and the IPv4 control '\d{1,3}(?:\.\d{1,3}){3}' = 27.
     var MAX_BOUNDED_SPLIT_PRODUCT = 5000000;
 
+    // leviroutes-0144: the same fixed-count exemption covers the single-atom case in the
+    // wrap-around arm (j === k with every other atom nullable), where it accepted any count
+    // below 8 before the unbounded/finite test ran. Repeating ONE unbounded atom k times splits
+    // a run in C(n-1, k-1) ways, so the cost grows with k even though nothing is nested:
+    // measured at the 4096-char near-miss cap, (\d+){2} is 80ms and (\w+){2} is 59ms, while
+    // (\d+){3} is 88s and ([a-z]+){3} is 129s. Two stays allowed, three or more does not.
+    var MAX_FIXED_COUNT_OF_UNBOUNDED_ATOM = 2;
+
+    var isUnboundedAtom = function(atom) {
+      return atom.max === undefined || atom.max === Infinity;
+    };
+
     var branchSplitProduct = function(branch, repCount) {
       if (branch.splitProductFor === repCount) return branch.splitProduct;
 
@@ -894,7 +906,8 @@ const routes = function(options) {
                     }
                   }
                   if (!allOtherNullable) continue;
-                  if (!q.isVariable && q.max !== undefined && q.max < 8) {
+                  if (!q.isVariable && q.max !== undefined && q.max < 8 &&
+                      !(isUnboundedAtom(atoms[j]) && q.max > MAX_FIXED_COUNT_OF_UNBOUNDED_ATOM)) {
                     continue;
                   }
                 }

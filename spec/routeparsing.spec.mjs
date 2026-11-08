@@ -501,6 +501,18 @@ describe("route parsing", function() {
     expect(function() {
       r.get("/:id((((?:\\d\\d?))*))", function(){});
     }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+    // leviroutes-0144: a fixed count of ONE unbounded atom is a split-count problem too - the
+    // wrap-around arm exempts any count below 8 before the unbounded test runs, so a repeat of
+    // a single unbounded atom registered and ([a-z]+){3} measured 129s at the 4096-char cap
+    // ((\d+){3}: 88s). Two is 59-80ms and stays accepted in the accept spec below.
+    expect(function() {
+      r.get("/:id(([a-z]+){3})", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/x/:id((\\d+){3})", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
   });
 
   it("should accept linear non-catastrophic custom patterns without false rejection", function() {
@@ -624,10 +636,6 @@ describe("route parsing", function() {
     r30.get("/:id((\\w+){2})", function(){});
     expect(r30.getRoutes()[0].regex.regexp).toEqual(/^(?:\/((\w+){2}))$/);
 
-    var r31 = new routes();
-    r31.get("/:id(([a-z]+){3})", function(){});
-    expect(r31.getRoutes()[0].regex.regexp).toEqual(/^(?:\/(([a-z]+){3}))$/);
-
     var r32 = new routes();
     r32.get("/:id((\\d{1,3}){4})", function(){});
     expect(r32.getRoutes()[0].regex.regexp).toEqual(/^(?:\/((\d{1,3}){4}))$/);
@@ -702,5 +710,11 @@ describe("route parsing", function() {
     var r45 = new routes();
     r45.get("/x/:id((\\d{1,4}\\d{1,4}){4})", function(){});
     expect(r45.getRoutes()[0].regex.regexp).toEqual(/^(?:\/x\/((\d{1,4}\d{1,4}){4}))$/);
+
+    // leviroutes-0144 calibration: a fixed count of two unbounded atoms costs 59-80ms at the
+    // 4096-char path cap, so it still registers; three measured 88-129s and is refused above.
+    var r46 = new routes();
+    r46.get("/x/:id((\\w+){2})", function(){});
+    expect(r46.getRoutes()[0].regex.regexp).toEqual(/^(?:\/x\/((\w+){2}))$/);
   });
 });
