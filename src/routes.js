@@ -526,6 +526,46 @@ const routes = function(options) {
     // allowed because it is a plausible authoring accident that only costs a quadratic match.
     var MAX_ADJACENT_AMBIGUOUS_ATOMS = 2;
 
+    // leviroutes-nlag: the small-fixed-count exemption below used to ask only whether the
+    // inner maxima were FINITE (leviroutes-pmue), never what they multiply to, so
+    // '(\d{1,6}\d{1,6}){7}' registered: (6*6)^7 = 7.8e10 chunkings, measured at 167s for a
+    // 40-digit near-miss. Bound the split product instead, the way the nullable counts are
+    // bounded: cost = (product of the branch's finite maxima above 1) ^ q.max, capped here.
+    // Calibrated against measured worst-case near-miss costs on the raw engine: products around
+    // 1e6 stay under ~2ms, 1.7e7 costs 1.6s for the '\d' spelling and 7.8e10 costs 167s, so the
+    // line sits just above the fast band. The product is a proxy, not a proof - two shapes with
+    // the same product can differ by 25x (the same 1.7e7 as '[a-z]{2,4}' measures 61ms) - so it
+    // is set to admit up to ~0.5s worst-case shapes (measured) and refuse the measured stalls.
+    // The established controls sit far below it:
+    // (\d{1,3}){4} = 81, ([a-z]{2,3}){3} = 27 and the IPv4 control '\d{1,3}(?:\.\d{1,3}){3}' = 27.
+    var MAX_BOUNDED_SPLIT_PRODUCT = 5000000;
+
+    var branchSplitProduct = function(branch, repCount) {
+      if (branch.splitProductFor === repCount) return branch.splitProduct;
+
+      var product = 1;
+      for (var a = 0; a < branch.atoms.length && product !== Infinity; a++) {
+        var max = branch.atoms[a].max;
+        if (max === undefined || max === Infinity) {
+          product = Infinity;
+          break;
+        }
+        if (max <= 1) continue;
+        product *= max;
+        if (product > MAX_BOUNDED_SPLIT_PRODUCT) product = Infinity;
+      }
+
+      var cost = 1;
+      for (var r = 0; r < repCount && cost !== Infinity; r++) {
+        cost *= product;
+        if (cost > MAX_BOUNDED_SPLIT_PRODUCT) cost = Infinity;
+      }
+
+      branch.splitProductFor = repCount;
+      branch.splitProduct = cost;
+      return cost;
+    };
+
     var isUnboundedVariableAtom = function(atom) {
       return (atom.isRepetition || atom.isVariable) &&
         (atom.max === undefined || atom.max === Infinity);
@@ -809,7 +849,8 @@ const routes = function(options) {
                     }
                   }
                   if (reachable && branchesOverlap(atoms[j].text, atoms[k].text)) {
-                    if (!q.isVariable && q.max !== undefined && q.max < 8) {
+                    if (!q.isVariable && q.max !== undefined && q.max < 8 &&
+                        branchSplitProduct(branch, q.max) <= MAX_BOUNDED_SPLIT_PRODUCT) {
                       var jUnbounded = atoms[j].max === undefined || atoms[j].max === Infinity;
                       var kUnbounded = atoms[k].max === undefined || atoms[k].max === Infinity;
                       if (!jUnbounded && !kUnbounded) {
@@ -860,7 +901,8 @@ const routes = function(options) {
 
                 if (atoms[j].isRepetition || atoms[k].isRepetition || atoms[j].isVariable || atoms[k].isVariable) {
                   if (atomPairOverlaps(atoms[j], atoms[k])) {
-                    if (!q.isVariable && q.max !== undefined && q.max < 8) {
+                    if (!q.isVariable && q.max !== undefined && q.max < 8 &&
+                        branchSplitProduct(branch, q.max) <= MAX_BOUNDED_SPLIT_PRODUCT) {
                       var jUnbounded = atoms[j].max === undefined || atoms[j].max === Infinity;
                       var kUnbounded = atoms[k].max === undefined || atoms[k].max === Infinity;
                       if (!jUnbounded && !kUnbounded) {

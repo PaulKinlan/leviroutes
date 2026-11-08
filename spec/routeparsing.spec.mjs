@@ -479,6 +479,17 @@ describe("route parsing", function() {
       r.get("/x/[a-z]+[a-z]+[a-z]+", function(){});
     }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
 
+    // leviroutes-nlag: the small-fixed-count exemption now multiplies the repeated branch's
+    // maxima instead of only checking that they are finite. (6*6)^7 = 7.8e10 chunkings measured
+    // 167s on a 40-digit near-miss, and (16)^6 = 1.7e7 measured 1.6s; both must register nothing.
+    expect(function() {
+      r.get("/x/:id((\\d{1,6}\\d{1,6}){7})", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/x/:id((\\d{1,4}\\d{1,4}){6})", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
     // leviroutes-omc1: the parenthesised-group check must still fire one nesting level
     // deeper than the linear controls that now register - the fix narrows the test from
     // "a group's text overlaps itself" to "the group's own boundary atoms overlap", so
@@ -678,5 +689,18 @@ describe("route parsing", function() {
     var r43 = new routes();
     r43.get("/x/:id([a-z]+[0-9]+)", function(){});
     expect(r43.getRoutes()[0].regex.regexp).toEqual(/^(?:\/x\/([a-z]+[0-9]+))$/);
+
+    // leviroutes-nlag calibration: the small-fixed-count exemption is bounded by the PRODUCT
+    // of the repeated branch's maxima, not by their finiteness alone. (\d{1,3}\d{1,3}){4} has a
+    // product of 6561 and measures under 1ms at the path cap, so it registers;
+    // (\d{1,6}\d{1,6}){7} has a product of 7.8e10, measures 167s on a 40-digit near-miss, and
+    // is refused (the rejection control lives in the reject spec above).
+    var r44 = new routes();
+    r44.get("/x/:id((\\d{1,3}\\d{1,3}){4})", function(){});
+    expect(r44.getRoutes()[0].regex.regexp).toEqual(/^(?:\/x\/((\d{1,3}\d{1,3}){4}))$/);
+
+    var r45 = new routes();
+    r45.get("/x/:id((\\d{1,4}\\d{1,4}){4})", function(){});
+    expect(r45.getRoutes()[0].regex.regexp).toEqual(/^(?:\/x\/((\d{1,4}\d{1,4}){4}))$/);
   });
 });
