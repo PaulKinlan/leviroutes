@@ -102,7 +102,15 @@ describe("verify-package registry pinning", function() {
     // Also measured: these RUN the lifecycle, so rejecting them would be a false
     // alarm on a safe config (npm's numeric rule makes '0', '0.0' and '00' false, and
     // ini drops the trailing comment, so 'false # explain' is still false).
-    for (const spelling of ["false", "0", "0.0", "00", "\"false\"", "null", "false # keep scripts"]) {
+    // leviroutes-ago1: Number() also accepts binary and octal literals, and ini drops a
+    // comment even with no whitespace in front of it - so '0b0', '0o0' and
+    // 'false;comment' keep the lifecycle enabled on npm 11.19.1 and must not be
+    // rejected. Measured with a prepublishOnly marker script and 'npm publish --dry-run'.
+    for (const spelling of [
+      "false", "0", "0.0", "00", "\"false\"", "null", "false # keep scripts",
+      "0b0", "0B0", "0o0", "0O0", "0x0", "'0b0'", "\"0b0\"",
+      "false;comment", "false#comment", "false ;comment"
+    ]) {
       fs.writeFileSync(path.join(root, "package.json"), PKG);
       fs.writeFileSync(path.join(root, ".npmrc"), `ignore-scripts=${spelling}\n`);
 

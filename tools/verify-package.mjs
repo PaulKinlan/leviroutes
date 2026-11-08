@@ -51,11 +51,18 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
   // makes the guard sound: the blacklist leviroutes-mwg introduced only caught the
   // spellings that happen to be famous, so 'no'/'off'/'2' still disarmed
   // prepublishOnly and passed the gate (leviroutes-rje).
+  // leviroutes-ago1: npm's numeric branch is Boolean(Number(v)), and Number() accepts
+  // the binary and octal literals too - '0b0' and '0o0' are 0, exactly like '0' and
+  // '0x0', so all of them leave the lifecycle ENABLED. The first version of this rule
+  // only matched decimal and 0x, so a safe 'ignore-scripts=0b0' was flagged while npm
+  // happily ran prepublishOnly (measured on npm 11.19.1 with a marker script and
+  // 'npm publish --dry-run').
+  const NPM_NUMERIC = /^(?:0[bB][01]+|0[oO][0-7]+|0[xX][0-9a-fA-F]+|[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)$/;
   const npmBoolean = (raw) => {
     let value = String(raw).trim();
     const quoted = /^(['"])([\s\S]*)\1$/.exec(value);
     if (quoted) value = quoted[2].trim();
-    if (/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(value) || /^0x[0-9a-f]+$/i.test(value)) {
+    if (NPM_NUMERIC.test(value)) {
       return Boolean(Number(value));
     }
     // Case-SENSITIVE: nopt compares the exact strings 'false' and 'null', so
@@ -87,9 +94,11 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
       const m = /^(registry|ignore-scripts)\s*(?:=\s*(.*))?$/.exec(line);
       if (!m) continue;
       const key = m[1];
-      // ini drops a trailing ' # comment' / ' ; comment', so 'false # explain' is
-      // still false to npm and must not be rejected here.
-      const value = (m[2] === undefined ? '' : m[2]).replace(/\s+[#;].*$/, '');
+      // ini drops a trailing ' # comment' / ' ; comment' - and npm also drops it when
+      // there is NO whitespace in front of it, so 'false;comment' and 'false#c' both
+      // run the lifecycle (measured on npm 11.19.1). Requiring whitespace flagged a
+      // safe config (leviroutes-ago1).
+      const value = (m[2] === undefined ? '' : m[2]).replace(/[#;].*$/, '');
       if (key === 'registry' && normalizeRegistry(value) !== OFFICIAL_REGISTRY) {
         registryOffenders.push(`.npmrc registry=${value}`);
       }
