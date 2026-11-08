@@ -458,6 +458,27 @@ describe("route parsing", function() {
       r.get("/:id((?:a?){5,5}){5,5}", function(){});
     }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
 
+    // leviroutes-6ifi: a run of three or more adjacent, mutually overlapping UNBOUNDED
+    // quantifiers is as dangerous without an enclosing repetition as inside one, so the
+    // adjacency check runs for every branch, including plain route text and the frames the
+    // pattern never closes. Measured at MAX_PATH_LENGTH (4096) with a near-miss path:
+    // a run of 2 costs 32ms (allowed below) and a run of 3 costs 26.9s (refused here).
+    expect(function() {
+      r.get("/x/:id(\\d+\\d+\\d+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/x/a+\\d+\\d+\\d+", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/x/:id((a+)(a+)(a+))", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/x/[a-z]+[a-z]+[a-z]+", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
     // leviroutes-omc1: the parenthesised-group check must still fire one nesting level
     // deeper than the linear controls that now register - the fix narrows the test from
     // "a group's text overlaps itself" to "the group's own boundary atoms overlap", so
@@ -644,5 +665,18 @@ describe("route parsing", function() {
     var r41 = new routes();
     r41.get("/:list(((\\d+,))+)", function(){});
     expect(r41.getRoutes()[0].regex.regexp).toEqual(/^(?:\/(((\d+,))+))$/);
+
+    // leviroutes-6ifi calibration: two adjacent same-class unbounded quantifiers cost 32ms
+    // at the 4096-char path cap, which is a quadratic match rather than a stall, so it stays
+    // accepted (the authoring accident is worth allowing); a third is refused above. Adjacent
+    // quantifiers over different character sets are never ambiguous and stay linear.
+    var r42 = new routes();
+    r42.get("/x/:id(\\d+\\d+)", function(){});
+    expect(r42.getRoutes()[0].regex.regexp).toEqual(/^(?:\/x\/(\d+\d+))$/);
+    expect(r42.getRoutes()[0].regex.regexp.exec("/x/1234")[1]).toEqual("1234");
+
+    var r43 = new routes();
+    r43.get("/x/:id([a-z]+[0-9]+)", function(){});
+    expect(r43.getRoutes()[0].regex.regexp).toEqual(/^(?:\/x\/([a-z]+[0-9]+))$/);
   });
 });

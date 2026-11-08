@@ -517,6 +517,60 @@ const routes = function(options) {
       return false;
     };
 
+    // leviroutes-6ifi: a run of adjacent, mutually overlapping UNBOUNDED quantifiers is as
+    // dangerous as a nested one, and the intra-branch/wrap-around analysis below only ever
+    // runs inside `if (isRep)` - so '/x/:id(\d+\d+\d+...)' (no enclosing repetition) was
+    // never analysed at all. Matching such a pattern against a near-miss path costs O(n^run):
+    // measured at MAX_PATH_LENGTH (4096) with '/x/:id(\d+...)' and a '!' terminator, run=2 is
+    // 32ms, run=3 is 26.9s and run=4 is minutes. So three or more is refused; two stays
+    // allowed because it is a plausible authoring accident that only costs a quadratic match.
+    var MAX_ADJACENT_AMBIGUOUS_ATOMS = 2;
+
+    var isUnboundedVariableAtom = function(atom) {
+      return (atom.isRepetition || atom.isVariable) &&
+        (atom.max === undefined || atom.max === Infinity);
+    };
+
+    var checkBranchAdjacentAmbiguity = function(branch) {
+      // Cheap pre-filter: a run of three needs at least three unbounded atoms in the branch,
+      // so an ordinary route never pays for the pairwise overlap tests below (each one builds
+      // two RegExp objects).
+      var unbounded = 0;
+      for (var c = 0; c < branch.atoms.length; c++) {
+        if (isUnboundedVariableAtom(branch.atoms[c])) unbounded++;
+      }
+      if (unbounded <= MAX_ADJACENT_AMBIGUOUS_ATOMS) return false;
+
+      var run = 0;
+      var previous = null;
+      for (var a = 0; a < branch.atoms.length; a++) {
+        var atom = branch.atoms[a];
+        if (!isUnboundedVariableAtom(atom)) {
+          run = 0;
+          previous = null;
+          continue;
+        }
+        if (previous !== null) {
+          // Identical texts overlap by construction; skipping branchesOverlap for them keeps
+          // the common 'X+X+X+' shape off the expensive path.
+          run = (previous.text === atom.text || branchesOverlap(previous.text, atom.text)) ? run + 1 : 1;
+        } else {
+          run = 1;
+        }
+        previous = atom;
+        if (run > MAX_ADJACENT_AMBIGUOUS_ATOMS) return true;
+      }
+      return false;
+    };
+
+    // Every branch of a frame gets the adjacency check, whether or not the frame is repeated.
+    var checkFrameAdjacentAmbiguity = function(frame) {
+      for (var b = 0; b < frame.branches.length; b++) {
+        if (checkBranchAdjacentAmbiguity(frame.branches[b])) return true;
+      }
+      return false;
+    };
+
     var stack = [];
     var currentFrame = newFrame();
     var inCharClass = false;
@@ -640,6 +694,8 @@ const routes = function(options) {
         if (hasOverlappingAlt || anyBranchHasInternal) {
           currentBranch.hasInternalReDoS = true;
         }
+
+        if (checkFrameAdjacentAmbiguity(finishedFrame)) return true;
 
         var q = parseQuantifierToken(pattern, i + 1);
         var end = i;
@@ -864,6 +920,15 @@ const routes = function(options) {
         max: q ? q.max : 1
       });
       if (checkBranchConsecutiveNullable(curBranch)) return true;
+    }
+
+    // A frame that the pattern never closes (the common case: route text such as
+    // '/x/a+\d+\d+\d+' or a custom group body with no wrapping parentheses) is still
+    // subject to the adjacency check - otherwise the top level is the one place where a
+    // dangerous run hides, which is exactly leviroutes-6ifi.
+    if (checkFrameAdjacentAmbiguity(currentFrame)) return true;
+    while (stack.length > 0) {
+      if (checkFrameAdjacentAmbiguity(stack.pop())) return true;
     }
 
     return false;
