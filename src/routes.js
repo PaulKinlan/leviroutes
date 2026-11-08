@@ -30,6 +30,11 @@ const routes = function(options) {
   // against ReDoS or unbounded input attacks (tm-unbounded-pattern-eval-on-untrusted-path).
   var MAX_PATTERN_LENGTH = 2048;
   var MAX_PATH_LENGTH = 4096;
+  // leviroutes-esva: the pathname was capped but the rest of the request target was not, so a
+  // query string of any length was parsed and iterated on every match (a 400KB target on a
+  // 7-character pathname measured 31.5ms of work per request). 16KB matches Node's default
+  // maxHeaderSize, i.e. the bound a real server already applies to the request target.
+  var MAX_URL_LENGTH = 16384;
   var MAX_VALUES_COUNT = 1024;
 
   // Parse quantifier token at startIdx in pattern: returns { isRepetition, isNullable, isVariable, end } or null.
@@ -1210,6 +1215,11 @@ const routes = function(options) {
 
   var matchRoute = function(url, e, server) {
     var route = null;
+    // The pathname cap below never covered the query string, which is parsed again per route
+    // below - so bound the whole request target here, before any URL work happens.
+    if (typeof url === "string" && url.length > MAX_URL_LENGTH) {
+      return false;
+    }
     var path = pathnameOf(url);
     if (typeof path !== "string" || path.length > MAX_PATH_LENGTH) {
       return false;
@@ -1278,13 +1288,20 @@ const routes = function(options) {
       if(server) {
         try {
           var parsed = new URL(url, "http://localhost/");
-          parsed.searchParams.forEach(function(value, name) {
+          // leviroutes-esva: MAX_VALUES_COUNT capped the STORED keys, not the work, so a query
+          // string with hundreds of thousands of parameters was still fully iterated. Stop
+          // scanning at the same bound; later parameters are simply not considered.
+          var scanned = 0;
+          for (var param of parsed.searchParams) {
+            if (scanned++ >= MAX_VALUES_COUNT) break;
+            var name = param[0];
+            var value = param[1];
             if (!(name in values)) {
-              if (valuesCount >= MAX_VALUES_COUNT) return;
+              if (valuesCount >= MAX_VALUES_COUNT) continue;
               valuesCount++;
             }
             values[name] = value;
-          });
+          }
         } catch (err) { /* an unparseable URL simply has no values */ }
       }
 

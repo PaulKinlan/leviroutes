@@ -247,6 +247,17 @@ must check `req.url` (or `req.values`) itself, and a handler that renders `req.u
 untrusted input. The same is true for browser form interception, where a form's `action` resolves to an
 absolute URL before matching.
 
+### Input bounds
+
+Matching is bounded so a hostile request cannot buy unbounded work: a pathname is capped at 4096
+characters, a whole request target (path **and** query string) at 16384 — the same order as Node's
+default `maxHeaderSize`, which a real server applies before the library ever sees the request — and a
+route pattern at 2048. A target over the cap does not match, so `dispatch()` returns `false` and the
+caller's fallback answers it. Query parameters are scanned up to the same 1024-parameter bound they are
+stored with, so an oversized query string costs a bounded amount of work rather than being iterated in
+full. Route registration additionally refuses patterns that could backtrack catastrophically, at
+registration rather than at request time (see `docs/urlpattern-investigation.md`).
+
 Routes are registered with `get()` and `post()`. A `HEAD` request is routed to the
 matching `get()` handler (RFC 9110: HEAD is GET without the body — write the body
 normally and the server runtime strips it); `req.method` is still `"head"`. Other
