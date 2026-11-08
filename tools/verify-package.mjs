@@ -41,6 +41,35 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
   // leviroutes-f9n).
   const OFFICIAL_REGISTRY = 'https://registry.npmjs.org/';
   const normalizeRegistry = (url) => String(url).trim().replace(/\/+$/, '') + '/';
+  // npm's own boolean coercion (nopt validateBoolean, npm 11.x): a numeric value
+  // becomes Boolean(Number(v)) - so '2', '1.0' and '0x1' are true while '0', '0.0'
+  // and '00' are false - the exact strings 'false' and 'null' are false, and EVERY
+  // other string is true, including 'no', 'off', 'FALSE', 'f', 'n' and 'tru e'. A
+  // bare key or an empty value is true as well (ini parses both to true). Quoted
+  // values are compared after the quotes come off, and a trailing ' # ...' / ' ; ...'
+  // comment is dropped, both of which npm does too. Reproducing that rule is what
+  // makes the guard sound: the blacklist leviroutes-mwg introduced only caught the
+  // spellings that happen to be famous, so 'no'/'off'/'2' still disarmed
+  // prepublishOnly and passed the gate (leviroutes-rje).
+  // leviroutes-ago1: npm's numeric branch is Boolean(Number(v)), and Number() accepts
+  // the binary and octal literals too - '0b0' and '0o0' are 0, exactly like '0' and
+  // '0x0', so all of them leave the lifecycle ENABLED. The first version of this rule
+  // only matched decimal and 0x, so a safe 'ignore-scripts=0b0' was flagged while npm
+  // happily ran prepublishOnly (measured on npm 11.19.1 with a marker script and
+  // 'npm publish --dry-run').
+  const NPM_NUMERIC = /^(?:0[bB][01]+|0[oO][0-7]+|0[xX][0-9a-fA-F]+|[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)$/;
+  const npmBoolean = (raw) => {
+    let value = String(raw).trim();
+    const quoted = /^(['"])([\s\S]*)\1$/.exec(value);
+    if (quoted) value = quoted[2].trim();
+    if (NPM_NUMERIC.test(value)) {
+      return Boolean(Number(value));
+    }
+    // Case-SENSITIVE: nopt compares the exact strings 'false' and 'null', so
+    // 'FALSE' and 'NULL' are true and npm skips the lifecycle for them. Measured
+    // against npm 11.19.1 'npm publish --dry-run'.
+    return !(value === 'false' || value === 'null');
+  };
   const registryOffenders = [];
   const envRegistry = process.env.npm_config_registry || process.env.NPM_CONFIG_REGISTRY;
   if (envRegistry && normalizeRegistry(envRegistry) !== OFFICIAL_REGISTRY) {
@@ -60,22 +89,21 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
     for (const rawLine of npmrc.split(/\r?\n/)) {
       const line = rawLine.trim();
       if (!line || line.startsWith('#') || line.startsWith(';')) continue;
-      const m = /^(registry|ignore-scripts)\s*=\s*(.*)$/.exec(line);
+      // The '=' is optional: a bare 'ignore-scripts' key is true to npm, and that is
+      // exactly the shape a hand-written config uses when it means 'on'.
+      const m = /^(registry|ignore-scripts)\s*(?:=\s*(.*))?$/.exec(line);
       if (!m) continue;
-      const [, key, value] = m;
+      const key = m[1];
+      // ini drops a trailing ' # comment' / ' ; comment' - and npm also drops it when
+      // there is NO whitespace in front of it, so 'false;comment' and 'false#c' both
+      // run the lifecycle (measured on npm 11.19.1). Requiring whitespace flagged a
+      // safe config (leviroutes-ago1).
+      const value = (m[2] === undefined ? '' : m[2]).replace(/[#;].*$/, '');
       if (key === 'registry' && normalizeRegistry(value) !== OFFICIAL_REGISTRY) {
         registryOffenders.push(`.npmrc registry=${value}`);
       }
-      if (key === 'ignore-scripts') {
-        // npm coerces booleans case-insensitively across several spellings
-        // (npmrc: true/t/yes/y/1/on, optionally quoted), and every one of them
-        // silently skips the prepublishOnly lifecycle - so the guard must
-        // reject the whole truthy set, not just the literal 'true'
-        // (leviroutes-mwg).
-        const unquoted = value.trim().replace(/^(['"])(.*)\1$/, '$2');
-        if (/^(true|t|yes|y|1|on)$/i.test(unquoted)) {
-          registryOffenders.push('.npmrc ignore-scripts=true disables the prepublishOnly lifecycle');
-        }
+      if (key === 'ignore-scripts' && npmBoolean(value)) {
+        registryOffenders.push(`.npmrc ignore-scripts=${value.trim() || '(bare key)'} disables the prepublishOnly lifecycle`);
       }
     }
   }
