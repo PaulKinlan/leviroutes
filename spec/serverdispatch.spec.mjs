@@ -172,6 +172,39 @@ describe("server dispatch", function() {
     expect(seen.values["k1024"]).toBeUndefined();
   });
 
+  it("should not match a request target longer than MAX_URL_LENGTH", function() {
+    // leviroutes-esva: only the pathname was capped, so the URL parse and query iteration ran on
+    // a target of any length (a 400KB target measured 29.7ms of work per request). The whole
+    // target is now bounded at 16KB, matching Node's default maxHeaderSize, and an over-long
+    // target simply does not match so the caller can fall back.
+    var fired = 0;
+    r.get("/user/:id", function() { fired++; });
+
+    var handled = r.dispatch({ url: "/user/42?" + "a".repeat(20000), method: "GET" }, { headersSent: false, writableEnded: false });
+
+    expect(handled).toEqual(false);
+    expect(fired).toEqual(0);
+  });
+
+  it("should stop scanning query parameters at MAX_VALUES_COUNT", function() {
+    // The key cap bounded what was stored, not what was iterated. Scanning now stops at the same
+    // bound, so a query string with thousands of parameters costs a bounded amount of work.
+    var seen = null;
+    r.get("/bulk", function(req) { seen = req; });
+
+    var params = [];
+    for (var i = 0; i < 2000; i++) {
+      params.push("p" + i + "=v");
+    }
+    var url = "/bulk?" + params.join("&");
+    expect(url.length).toBeLessThan(16384);
+
+    r.dispatch({ url: url, method: "GET" });
+    expect(Object.keys(seen.values).length).toEqual(1024);
+    expect(seen.values["p1023"]).toEqual("v");
+    expect(seen.values["p1024"]).toBeUndefined();
+  });
+
   it("should run the middleware chain before the route callback", function() {
     var order = [];
     r.use(function(req, next) { order.push("mw1"); next(); });
