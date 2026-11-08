@@ -298,6 +298,122 @@ describe("server dispatch", function() {
     expect(r.dispatch({ url: "/guarded", method: "GET" }, response)).toEqual(true);
   });
 
+  it("should settle the response with a 500 and still surface a throwing handler", function() {
+    // leviroutes-pxcx: the browser submit path is guarded because a throw unwinding past
+    // preventDefault() triggered a native POST (leviroutes-303); the server path had no
+    // containment, so the throw reached the http listener with the response unwritten.
+    var settled = { status: null, ended: false, body: null };
+    var response = {
+      headersSent: false,
+      writableEnded: false,
+      finished: false,
+      writeHead: function(code) { settled.status = code; this.headersSent = true; },
+      end: function(body) { settled.ended = true; settled.body = body; this.writableEnded = true; }
+    };
+    r.get("/boom", function() { throw new Error("handler blew up"); });
+
+    var escaped = null;
+    try {
+      r.dispatch({ url: "/boom", method: "GET" }, response);
+    } catch (error) {
+      escaped = error;
+    }
+
+    expect(settled.status).toEqual(500);
+    expect(settled.ended).toEqual(true);
+    expect(escaped && escaped.message).toEqual("handler blew up");
+  });
+
+  it("should contain a throwing middleware the same way", function() {
+    var status = null;
+    var response = {
+      headersSent: false,
+      writableEnded: false,
+      writeHead: function(code) { status = code; this.headersSent = true; },
+      end: function() { this.writableEnded = true; }
+    };
+    r.use(function() { throw new Error("middleware blew up"); });
+    r.get("/boom", function() {});
+
+    expect(function() { r.dispatch({ url: "/boom", method: "GET" }, response); })
+      .toThrowError(/middleware blew up/);
+    expect(status).toEqual(500);
+  });
+
+  it("should not write a 500 over a response whose headers were already sent", function() {
+    var writeHeadCalls = 0;
+    var response = {
+      headersSent: true,
+      writableEnded: false,
+      writeHead: function() { writeHeadCalls++; },
+      end: function() { this.writableEnded = true; }
+    };
+    r.get("/boom", function() { throw new Error("late failure"); });
+
+    expect(function() { r.dispatch({ url: "/boom", method: "GET" }, response); })
+      .toThrowError(/late failure/);
+    expect(writeHeadCalls).toEqual(0);
+    expect(response.writableEnded).toEqual(false);
+  });
+
+  it("should contain a deferred chain throw instead of killing the process", async function() {
+    // leviroutes-llq8: a deferred next() is a supported pattern, and a throw from that later
+    // frame lands in the TIMER's context - no app-level try/catch around dispatch() can see a
+    // rethrow there, so it used to be an uncaughtException (process death) even after the 500 was
+    // settled. It must be contained and recorded on the request instead.
+    var settled = { status: null, ended: false };
+    var incoming = { url: "/boom", method: "GET" };
+    var response = {
+      headersSent: false,
+      writableEnded: false,
+      writeHead: function(code) { settled.status = code; this.headersSent = true; },
+      end: function() { settled.ended = true; this.writableEnded = true; }
+    };
+    r.use(function(req, next) { setTimeout(next, 5); });
+    r.get("/boom", function() { throw new Error("deferred blow up"); });
+
+    var escaped = null;
+    try {
+      r.dispatch(incoming, response);
+    } catch (error) {
+      escaped = error;
+    }
+    expect(escaped).toBe(null);
+
+    await new Promise(function(resolve) { setTimeout(resolve, 30); });
+    expect(settled.status).toEqual(500);
+    expect(settled.ended).toEqual(true);
+    expect(incoming.error && incoming.error.message).toEqual("deferred blow up");
+  });
+
+  it("should contain a rejected async handler", async function() {
+    var status = null;
+    var incoming = { url: "/async-boom", method: "GET" };
+    var response = {
+      headersSent: false,
+      writableEnded: false,
+      writeHead: function(code) { status = code; this.headersSent = true; },
+      end: function() { this.writableEnded = true; }
+    };
+    r.get("/async-boom", async function() { throw new Error("async blow up"); });
+
+    r.dispatch(incoming, response);
+    await new Promise(function(resolve) { setTimeout(resolve, 10); });
+
+    expect(status).toEqual(500);
+    expect(incoming.error && incoming.error.message).toEqual("async blow up");
+  });
+
+  it("should leave the browser path's error behaviour unchanged", function() {
+    // dispatch() only contains handlers for server callers; test()/navigation keep propagating,
+    // which is what the browser submit path's own try/catch depends on.
+    var response = { headersSent: false, writableEnded: false, writeHead: function() {}, end: function() {} };
+    r.get("/boom", function() { throw new Error("browser blew up"); });
+
+    expect(function() { r.test("/boom"); }).toThrowError(/browser blew up/);
+    expect(response.writableEnded).toEqual(false);
+  });
+
   it("should make next.abort available on the browser routing path", function() {
     var fired = false;
     r.use(function(req, next) { next.abort(); });

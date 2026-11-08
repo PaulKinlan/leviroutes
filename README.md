@@ -263,6 +263,26 @@ matching `get()` handler (RFC 9110: HEAD is GET without the body — write the b
 normally and the server runtime strips it); `req.method` is still `"head"`. Other
 verbs do not match and `dispatch()` returns `false`.
 
+### Errors
+
+A handler or middleware that throws is contained on the server path: `dispatch()` settles an
+uncommitted response with a `500`, records the error on `req.error` (and on the raw request object) and
+then rethrows. Inside the `dispatch()` call frame the rethrow is yours to catch — `try { app.dispatch(req, res) } catch`
+sees it. From a **deferred** frame (a `setTimeout`ed `next()`, or an `async` handler that rejects) no
+caller can catch a rethrow, so the error is contained and recorded instead of becoming an
+`uncaughtException`:
+
+```javascript
+app.use(function(req, next) { setTimeout(next, 10); });
+app.get("/boom", function() { throw new Error("later"); });
+// response: 500; req.error and raw request .error hold the Error; the process survives
+```
+
+The browser path keeps propagating (`test()` and navigation callers see the throw), which is what the
+form-submit interception relies on. One limit is inherent: an error thrown from a timer or promise the
+handler creates *itself*, outside the chain, is outside the library's reach and still reaches Node's
+`uncaughtException`.
+
 Browser behaviour is unchanged: `popstate`, form interception and `test()` still
 match a URL regardless of the method a route was registered with. Request bodies
 are not parsed; stream them from `req.request` inside your route as usual.
