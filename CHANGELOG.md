@@ -63,8 +63,9 @@ this one; the owner approved `2.0.0` plus these notes.
   a dedicated action path, and register directory base paths for `pushState` navigation
   (`leviroutes-*`, `d0f5e26`, `8452532`, `137d07e`).
 * The publish gate is real again (`leviroutes-53r`, `leviroutes-aou`): `prepublishOnly` now runs
-  `npm test && npm run verify:package && npm run build`, so a publish cannot ship untested code or a
-  stale `dist/routes.min.js`.
+  `npm test && npm run verify:package`, so a publish cannot ship untested code. The package ships
+  `src/routes.js` directly - there is no build step - and the old `dist/routes.min.js` has been
+  retired rather than produced or protected by the gate (`leviroutes-o71`).
 
 ### Migrating from 1.x
 
