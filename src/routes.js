@@ -1419,24 +1419,45 @@ const routes = function(options) {
       var middlewareIndex = 0;
       var aborted = false;
       var handled = false;
-      var next = function() {
-        if (aborted) return;
+
+      var abortChain = function() { aborted = true; };
+
+      var advanceChain = function() {
+        if (aborted || handled) return;
         if (middlewareIndex < _middleware.length) {
           var middleware = _middleware[middlewareIndex++];
-          middleware(req, next);
+          middleware(req, makeStageNext());
         } else {
           // All middleware executed, call the route callback
           handled = true;
           route.callback(req);
         }
       };
-      
+
+      // leviroutes-hphu: each stage may advance the chain ONCE. A middleware that calls next()
+      // twice - the classic synchronous fall-through plus async-branch bug - used to drive the
+      // chain twice and run the route callback twice, duplicating the matched route's side
+      // effects (a second server write then throwing past dispatch()); next.abort() could not
+      // prevent the re-entry. A repeat call from the same stage is now ignored, and `handled`
+      // stops a late next() from a saved reference from running the callback a second time.
+      // Every stage still gets its own next(), so a deferred next() keeps working.
+      var makeStageNext = function() {
+        var advanced = false;
+        var stageNext = function() {
+          if (advanced) return;
+          advanced = true;
+          advanceChain();
+        };
+        stageNext.abort = abortChain;
+        return stageNext;
+      };
+
       // A synchronous server middleware can explicitly transfer responsibility
       // back to the caller. Without that signal, no immediate next() is also a
       // valid deferred next(), so a matched route must still count as handled.
       // Once the route callback executes (handled = true), dispatch() always reports
       // handled: a late abort afterwards cannot un-handle an executed route.
-      next.abort = function() { aborted = true; };
+      var next = makeStageNext();
 
       // Start middleware execution
       next();
