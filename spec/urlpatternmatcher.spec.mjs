@@ -206,6 +206,21 @@ describe("urlpattern matcher (opt-in)", function() {
     }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
   });
 
+  it("rejects adjacent same-class quantifier runs in the urlpattern matcher too", function() {
+    if (!supported) return pending("URLPattern is not available in this environment");
+    var app = new routes({ matcher: "urlpattern" });
+    // leviroutes-6ifi: the adjacency check is shared by both matchers, so a run of three
+    // overlapping unbounded quantifiers is refused here as well, while a run of two (a
+    // quadratic match, not a stall) still registers.
+    expect(function() {
+      app.get("/x/:id(\\d+\\d+\\d+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    var ok = new routes({ matcher: "urlpattern" });
+    ok.get("/x/:id(\\d+\\d+)", function(){});
+    expect(ok.getRoutes()[0].regex.pattern instanceof URLPattern).toEqual(true);
+  });
+
   it("does not match paths exceeding MAX_PATH_LENGTH in urlpattern matcher", function() {
     if (!supported) return pending("URLPattern is not available in this environment");
     var app = new routes({ matcher: "urlpattern" });

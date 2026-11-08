@@ -517,6 +517,112 @@ const routes = function(options) {
       return false;
     };
 
+    // leviroutes-6ifi: a run of adjacent, mutually overlapping UNBOUNDED quantifiers is as
+    // dangerous as a nested one, and the intra-branch/wrap-around analysis below only ever
+    // runs inside `if (isRep)` - so '/x/:id(\d+\d+\d+...)' (no enclosing repetition) was
+    // never analysed at all. Matching such a pattern against a near-miss path costs O(n^run):
+    // measured at MAX_PATH_LENGTH (4096) with '/x/:id(\d+...)' and a '!' terminator, run=2 is
+    // 32ms, run=3 is 26.9s and run=4 is minutes. So three or more is refused; two stays
+    // allowed because it is a plausible authoring accident that only costs a quadratic match.
+    var MAX_ADJACENT_AMBIGUOUS_ATOMS = 2;
+
+    // leviroutes-nlag: the small-fixed-count exemption below used to ask only whether the
+    // inner maxima were FINITE (leviroutes-pmue), never what they multiply to, so
+    // '(\d{1,6}\d{1,6}){7}' registered: (6*6)^7 = 7.8e10 chunkings, measured at 167s for a
+    // 40-digit near-miss. Bound the split product instead, the way the nullable counts are
+    // bounded: cost = (product of the branch's finite maxima above 1) ^ q.max, capped here.
+    // Calibrated against measured worst-case near-miss costs on the raw engine: products around
+    // 1e6 stay under ~2ms, 1.7e7 costs 1.6s for the '\d' spelling and 7.8e10 costs 167s, so the
+    // line sits just above the fast band. The product is a proxy, not a proof - two shapes with
+    // the same product can differ by 25x (the same 1.7e7 as '[a-z]{2,4}' measures 61ms) - so it
+    // is set to admit up to ~0.5s worst-case shapes (measured) and refuse the measured stalls.
+    // The established controls sit far below it:
+    // (\d{1,3}){4} = 81, ([a-z]{2,3}){3} = 27 and the IPv4 control '\d{1,3}(?:\.\d{1,3}){3}' = 27.
+    var MAX_BOUNDED_SPLIT_PRODUCT = 5000000;
+
+    // leviroutes-0144: the same fixed-count exemption covers the single-atom case in the
+    // wrap-around arm (j === k with every other atom nullable), where it accepted any count
+    // below 8 before the unbounded/finite test ran. Repeating ONE unbounded atom k times splits
+    // a run in C(n-1, k-1) ways, so the cost grows with k even though nothing is nested:
+    // measured at the 4096-char near-miss cap, (\d+){2} is 80ms and (\w+){2} is 59ms, while
+    // (\d+){3} is 88s and ([a-z]+){3} is 129s. Two stays allowed, three or more does not.
+    var MAX_FIXED_COUNT_OF_UNBOUNDED_ATOM = 2;
+
+    var isUnboundedAtom = function(atom) {
+      return atom.max === undefined || atom.max === Infinity;
+    };
+
+    var branchSplitProduct = function(branch, repCount) {
+      if (branch.splitProductFor === repCount) return branch.splitProduct;
+
+      var product = 1;
+      for (var a = 0; a < branch.atoms.length && product !== Infinity; a++) {
+        var max = branch.atoms[a].max;
+        if (max === undefined || max === Infinity) {
+          product = Infinity;
+          break;
+        }
+        if (max <= 1) continue;
+        product *= max;
+        if (product > MAX_BOUNDED_SPLIT_PRODUCT) product = Infinity;
+      }
+
+      var cost = 1;
+      for (var r = 0; r < repCount && cost !== Infinity; r++) {
+        cost *= product;
+        if (cost > MAX_BOUNDED_SPLIT_PRODUCT) cost = Infinity;
+      }
+
+      branch.splitProductFor = repCount;
+      branch.splitProduct = cost;
+      return cost;
+    };
+
+    var isUnboundedVariableAtom = function(atom) {
+      return (atom.isRepetition || atom.isVariable) &&
+        (atom.max === undefined || atom.max === Infinity);
+    };
+
+    var checkBranchAdjacentAmbiguity = function(branch) {
+      // Cheap pre-filter: a run of three needs at least three unbounded atoms in the branch,
+      // so an ordinary route never pays for the pairwise overlap tests below (each one builds
+      // two RegExp objects).
+      var unbounded = 0;
+      for (var c = 0; c < branch.atoms.length; c++) {
+        if (isUnboundedVariableAtom(branch.atoms[c])) unbounded++;
+      }
+      if (unbounded <= MAX_ADJACENT_AMBIGUOUS_ATOMS) return false;
+
+      var run = 0;
+      var previous = null;
+      for (var a = 0; a < branch.atoms.length; a++) {
+        var atom = branch.atoms[a];
+        if (!isUnboundedVariableAtom(atom)) {
+          run = 0;
+          previous = null;
+          continue;
+        }
+        if (previous !== null) {
+          // Identical texts overlap by construction; skipping branchesOverlap for them keeps
+          // the common 'X+X+X+' shape off the expensive path.
+          run = (previous.text === atom.text || branchesOverlap(previous.text, atom.text)) ? run + 1 : 1;
+        } else {
+          run = 1;
+        }
+        previous = atom;
+        if (run > MAX_ADJACENT_AMBIGUOUS_ATOMS) return true;
+      }
+      return false;
+    };
+
+    // Every branch of a frame gets the adjacency check, whether or not the frame is repeated.
+    var checkFrameAdjacentAmbiguity = function(frame) {
+      for (var b = 0; b < frame.branches.length; b++) {
+        if (checkBranchAdjacentAmbiguity(frame.branches[b])) return true;
+      }
+      return false;
+    };
+
     var stack = [];
     var currentFrame = newFrame();
     var inCharClass = false;
@@ -641,6 +747,8 @@ const routes = function(options) {
           currentBranch.hasInternalReDoS = true;
         }
 
+        if (checkFrameAdjacentAmbiguity(finishedFrame)) return true;
+
         var q = parseQuantifierToken(pattern, i + 1);
         var end = i;
         var isRep = false;
@@ -753,7 +861,8 @@ const routes = function(options) {
                     }
                   }
                   if (reachable && branchesOverlap(atoms[j].text, atoms[k].text)) {
-                    if (!q.isVariable && q.max !== undefined && q.max < 8) {
+                    if (!q.isVariable && q.max !== undefined && q.max < 8 &&
+                        branchSplitProduct(branch, q.max) <= MAX_BOUNDED_SPLIT_PRODUCT) {
                       var jUnbounded = atoms[j].max === undefined || atoms[j].max === Infinity;
                       var kUnbounded = atoms[k].max === undefined || atoms[k].max === Infinity;
                       if (!jUnbounded && !kUnbounded) {
@@ -797,14 +906,16 @@ const routes = function(options) {
                     }
                   }
                   if (!allOtherNullable) continue;
-                  if (!q.isVariable && q.max !== undefined && q.max < 8) {
+                  if (!q.isVariable && q.max !== undefined && q.max < 8 &&
+                      !(isUnboundedAtom(atoms[j]) && q.max > MAX_FIXED_COUNT_OF_UNBOUNDED_ATOM)) {
                     continue;
                   }
                 }
 
                 if (atoms[j].isRepetition || atoms[k].isRepetition || atoms[j].isVariable || atoms[k].isVariable) {
                   if (atomPairOverlaps(atoms[j], atoms[k])) {
-                    if (!q.isVariable && q.max !== undefined && q.max < 8) {
+                    if (!q.isVariable && q.max !== undefined && q.max < 8 &&
+                        branchSplitProduct(branch, q.max) <= MAX_BOUNDED_SPLIT_PRODUCT) {
                       var jUnbounded = atoms[j].max === undefined || atoms[j].max === Infinity;
                       var kUnbounded = atoms[k].max === undefined || atoms[k].max === Infinity;
                       if (!jUnbounded && !kUnbounded) {
@@ -864,6 +975,15 @@ const routes = function(options) {
         max: q ? q.max : 1
       });
       if (checkBranchConsecutiveNullable(curBranch)) return true;
+    }
+
+    // A frame that the pattern never closes (the common case: route text such as
+    // '/x/a+\d+\d+\d+' or a custom group body with no wrapping parentheses) is still
+    // subject to the adjacency check - otherwise the top level is the one place where a
+    // dangerous run hides, which is exactly leviroutes-6ifi.
+    if (checkFrameAdjacentAmbiguity(currentFrame)) return true;
+    while (stack.length > 0) {
+      if (checkFrameAdjacentAmbiguity(stack.pop())) return true;
     }
 
     return false;
