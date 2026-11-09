@@ -118,12 +118,25 @@ describe("urlpattern matcher (opt-in)", function() {
     };
 
     // The action resolves to an absolute URL; matching is on its pathname.
-    submit("http://example.com/test");
-    expect(fired).toEqual("http://example.com/test");
+    // The origin gate (leviroutes-yzfq) applies before matcher dispatch, so a
+    // same-origin absolute URL exercises pathname matching and a cross-origin
+    // one never fires the route at all, in this mode just like the default one.
+    submit("http://localhost/test");
+    expect(fired).toEqual("http://localhost/test");
 
     fired = null;
-    submit("http://example.com/deep/test");
+    submit("http://localhost/deep/test");
     expect(fired).toEqual(null);
+
+    var e = new Event("submit", { bubbles: true, cancelable: true });
+    var form = document.createElement("form");
+    form.method = "post";
+    form.action = "http://example.com/test";
+    window.document.body.appendChild(form);
+    form.dispatchEvent(e);
+    window.document.body.removeChild(form);
+    expect(fired).toEqual(null);
+    expect(e.defaultPrevented).toEqual(false);
   });
 
   it("creates req.params with null prototype", function() {

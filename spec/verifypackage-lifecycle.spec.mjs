@@ -110,4 +110,49 @@ describe("verify-package no-build lifecycle contract", function() {
     expect(result.ok).toBe(false);
     expect(result.error).toContain("missing spec/support/jasmine.json");
   });
+
+  // npm auto-runs a package's install-family scripts on every consumer machine
+  // at npm install, and the publish/version family around npm publish and
+  // npm version. None of them are seen by the prepublishOnly gate, so each must
+  // be rejected outright (leviroutes-1bty: the original nine-entry denylist
+  // covered neither family).
+  var consumerAndPublishHooks = [
+    "preinstall", "install", "postinstall",
+    "preuninstall", "uninstall", "postuninstall",
+    "publish", "postpublish", "preversion", "version", "postversion",
+    "postpack"
+  ];
+
+  consumerAndPublishHooks.forEach(function(hook) {
+    it("rejects the consumer/publish-side lifecycle hook '" + hook + "'", async function() {
+      fixture({ scripts: {
+        test: "jasmine",
+        "verify:package": "node tools/verify-package.mjs",
+        prepublishOnly: "npm test && npm run verify:package"
+      } });
+      const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+      pkg.scripts[hook] = "echo hook";
+      fs.writeFileSync(path.join(root, "package.json"), JSON.stringify(pkg));
+
+      const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain("defines unallowlisted lifecycle hook scripts[\"" + hook + "\"]");
+    });
+  });
+
+  it("still passes scripts the denylist does not name", async function() {
+    fixture({ scripts: {
+      test: "jasmine",
+      "verify:package": "node tools/verify-package.mjs",
+      prepublishOnly: "npm test && npm run verify:package",
+      lint: "echo lint"
+    } });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    // The denylist is per-hook, not a scripts allowlist: a benign extra script
+    // must sail through to the next check (control's proving error).
+    expect(result.error).toContain("missing spec/support/jasmine.json");
+  });
 });

@@ -55,6 +55,9 @@ this one; the owner approved `2.0.0` plus these notes.
 
 * A route handler that throws during a form submit no longer lets the browser perform the native POST
   (`leviroutes-303`, `6f50f97`): the submit is always intercepted, and the error is still rethrown.
+* Form interception is now same-origin only (`leviroutes-yzfq`): a POST to another origin whose
+  pathname collides with a local route is no longer silently `preventDefault()`ed — the native
+  submission proceeds and the local handler no longer fires for a form the document does not own.
 * Back/Forward navigation past two history entries that share a URL now fires its route
   (`leviroutes-s8o`, `7e4ac6b`): navigation events are deduplicated by event kind rather than by
   location.
@@ -66,6 +69,9 @@ this one; the owner approved `2.0.0` plus these notes.
   `npm test && npm run verify:package`, so a publish cannot ship untested code. The package ships
   `src/routes.js` directly - there is no build step - and the old `dist/routes.min.js` has been
   retired rather than produced or protected by the gate (`leviroutes-o71`).
+* The publish gate now rejects the npm lifecycle hooks it cannot see run (`leviroutes-1bty`): the
+  install family, which executes on consumers' machines at `npm install`, and the publish, version
+  and pack-completion hooks, which run around `npm publish` and `npm version`.
 
 ### Migrating from 1.x
 

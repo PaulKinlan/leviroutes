@@ -54,6 +54,68 @@ describe("routing", function() {
     expect(triggered).toEqual(false);
   });
 
+  it("should not intercept a cross-origin POST whose pathname matches a local route", function() {
+    var triggered = false;
+    r.post("/test", function() {
+      triggered = true;
+    });
+    var form = document.createElement("form");
+    // The pathname /test matches the registered route exactly, but the action
+    // points at another origin: the router must not preventDefault() a foreign
+    // submission or run the local handler for it (leviroutes-yzfq).
+    form.action = "http://example.com/test";
+    form.method = "post";
+    window.document.body.appendChild(form);
+
+    var e = new Event("submit", { bubbles: true, cancelable: true });
+    form.dispatchEvent(e);
+
+    window.document.body.removeChild(form);
+
+    expect(triggered).toEqual(false);
+    expect(e.defaultPrevented).toEqual(false);
+  });
+
+  it("should not intercept a protocol-relative cross-origin POST matching a local route", function() {
+    var triggered = false;
+    r.post("/test", function() {
+      triggered = true;
+    });
+    var form = document.createElement("form");
+    form.action = "//example.com/test";
+    form.method = "post";
+    window.document.body.appendChild(form);
+
+    var e = new Event("submit", { bubbles: true, cancelable: true });
+    form.dispatchEvent(e);
+
+    window.document.body.removeChild(form);
+
+    expect(triggered).toEqual(false);
+    expect(e.defaultPrevented).toEqual(false);
+  });
+
+  it("should still intercept a same-origin POST written as an absolute URL", function() {
+    var triggered = false;
+    r.post("/test", function() {
+      triggered = true;
+    });
+    var form = document.createElement("form");
+    // The jsdom fixture document lives at http://localhost, so this absolute
+    // action is same-origin and keeps the historical interception behaviour.
+    form.action = "http://localhost/test";
+    form.method = "post";
+    window.document.body.appendChild(form);
+
+    var e = new Event("submit", { bubbles: true, cancelable: true });
+    form.dispatchEvent(e);
+
+    window.document.body.removeChild(form);
+
+    expect(triggered).toEqual(true);
+    expect(e.defaultPrevented).toEqual(true);
+  });
+
   it("should prevent the native submit when a matched route runs without throwing", function() {
     var triggered = false;
     r.post("/test", function() {

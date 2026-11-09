@@ -205,10 +205,23 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
     return fail('package.json must not define build scripts: the browser condition exports src/routes.js directly (leviroutes-o71)');
   }
 
-  // Reject unallowlisted npm lifecycle hooks that could bypass or mutate test artifacts
+  // Reject lifecycle hooks outside the gate's control. npm auto-runs a package's
+  // install-family scripts on every CONSUMER machine at npm install, and the
+  // publish/version family around npm publish and npm version - exactly the
+  // arbitrary-code and artifact-mutating surfaces a maintainer could add after
+  // review (leviroutes-1bty: the original nine-entry list covered the build/test
+  // family and prepublish/prepare/prepack only, so a committed postinstall or
+  // publish hook passed this gate). npm also auto-runs pre<script>/post<script>
+  // for any `npm run <script>`, which is why the build/test entries stay listed
+  // even though the build scripts themselves are banned above. prepublishOnly is
+  // deliberately absent: it is required and shape-checked below.
   const forbiddenHooks = [
     'prebuild', 'prebuild:min', 'postbuild', 'postbuild:min',
-    'pretest', 'posttest', 'prepublish', 'prepare', 'prepack'
+    'pretest', 'posttest',
+    'prepublish', 'prepare', 'prepack', 'postpack', 'publish', 'postpublish',
+    'preversion', 'version', 'postversion',
+    'preinstall', 'install', 'postinstall',
+    'preuninstall', 'uninstall', 'postuninstall'
   ];
   for (const hook of forbiddenHooks) {
     if (pkg.scripts && hook in pkg.scripts) {
