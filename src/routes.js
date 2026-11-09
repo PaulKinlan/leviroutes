@@ -1676,6 +1676,22 @@ const routes = function(options) {
     // Intercept FORM submissions.
     window.addEventListener("submit", function(e) {
       if(e.target.method == "post") {
+        // Only intercept same-origin actions. matchRoute reduces a URL to its
+        // pathname, so without this guard a POST to another origin whose path
+        // collides with a local route matches, preventDefault() swallows the
+        // submission and it never reaches the foreign endpoint, while the local
+        // handler fires for a form this document does not own (leviroutes-yzfq).
+        // A cross-origin POST is the browser's business: let the native submit
+        // proceed. An action that cannot be parsed as a URL falls through the
+        // same way rather than being silently dropped.
+        try {
+          var actionUrl = new URL(e.target.action, document.baseURI);
+          if (actionUrl.origin !== document.location.origin) {
+            return true;
+          }
+        } catch (originErr) {
+          return true;
+        }
         var matched;
         try {
           matched = matchRoute(e.target.action, e);

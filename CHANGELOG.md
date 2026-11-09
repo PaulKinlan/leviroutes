@@ -55,6 +55,9 @@ this one; the owner approved `2.0.0` plus these notes.
 
 * A route handler that throws during a form submit no longer lets the browser perform the native POST
   (`leviroutes-303`, `6f50f97`): the submit is always intercepted, and the error is still rethrown.
+* Form interception is now same-origin only (`leviroutes-yzfq`): a POST to another origin whose
+  pathname collides with a local route is no longer silently `preventDefault()`ed — the native
+  submission proceeds and the local handler no longer fires for a form the document does not own.
 * Back/Forward navigation past two history entries that share a URL now fires its route
   (`leviroutes-s8o`, `7e4ac6b`): navigation events are deduplicated by event kind rather than by
   location.
