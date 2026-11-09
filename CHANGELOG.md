@@ -69,6 +69,9 @@ this one; the owner approved `2.0.0` plus these notes.
   `npm test && npm run verify:package`, so a publish cannot ship untested code. The package ships
   `src/routes.js` directly - there is no build step - and the old `dist/routes.min.js` has been
   retired rather than produced or protected by the gate (`leviroutes-o71`).
+* The publish gate now rejects the npm lifecycle hooks it cannot see run (`leviroutes-1bty`): the
+  install family, which executes on consumers' machines at `npm install`, and the publish, version
+  and pack-completion hooks, which run around `npm publish` and `npm version`.
 
 ### Migrating from 1.x
 
