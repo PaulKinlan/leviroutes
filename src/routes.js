@@ -36,6 +36,14 @@ const routes = function(options) {
   // maxHeaderSize, i.e. the bound a real server already applies to the request target.
   var MAX_URL_LENGTH = 16384;
   var MAX_VALUES_COUNT = 1024;
+  // leviroutes-j6sv: expandAtoms() materialises a fixed {n} into n atoms so two branches can be
+  // compared position by position, and nothing bounded n: '/:id((a{2,3}|a{100000000}){2})' is a
+  // 31-character pattern that pushed 2e8 atoms and died of heap OOM at registration (measured:
+  // 1e3 -> 8ms, 1e5 -> 25ms, 5e6 -> 601ms, 1e8 -> FATAL ERROR: JavaScript heap out of memory).
+  // The comparison only ever needs to align atoms inside a branch an author actually wrote, so
+  // above this many atoms the expansion abstains (returns null, the existing "cannot decide"
+  // signal) and branchesOverlap() falls through to its character probe instead of allocating.
+  var MAX_EXPANDED_ATOMS = 512;
 
   // Parse quantifier token at startIdx in pattern: returns { isRepetition, isNullable, isVariable, end } or null.
   // Repetition quantifiers (+, *, {n,m} where max > 1) can repeat multiple times.
@@ -294,6 +302,7 @@ const routes = function(options) {
             i = closeBrace + 1;
           }
         }
+        if (count * innerAtoms.length > MAX_EXPANDED_ATOMS) return null;
         for (var rep = 0; rep < count; rep++) {
           atoms.push.apply(atoms, innerAtoms);
         }
@@ -316,6 +325,7 @@ const routes = function(options) {
           i = closeBrace + 1;
         }
       }
+      if (atoms.length + count > MAX_EXPANDED_ATOMS) return null;
       for (var rep = 0; rep < count; rep++) {
         atoms.push(atom);
       }

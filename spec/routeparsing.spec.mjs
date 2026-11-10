@@ -749,4 +749,39 @@ describe("route parsing", function() {
     literalBraceWithTrailing.get("/x/a{b", function(){});
     expect(literalBraceWithTrailing.getRoutes()[0].regex.regexp).toEqual(/^(?:\/x\/a{b)$/);
   });
+
+  // leviroutes-j6sv: expandAtoms() materialises a fixed {n} into n atoms, and nothing bounded n, so the
+  // guard could exhaust the heap on its own analysis: '/:id((a{2,3}|a{100000000}){2})' pushed 2e8 atoms
+  // and died with 'FATAL ERROR: JavaScript heap out of memory' at registration (1e3 -> 8ms,
+  // 1e5 -> 25ms, 5e6 -> 601ms, 1e8 -> OOM at a 256MB heap). Above MAX_EXPANDED_ATOMS the expansion now
+  // abstains (null) and the comparison falls through to the character probe, so these shapes take the
+  // same verdict they took at a small count - and the suite's own bound proves they return instead of
+  // allocating.
+  it("should not expand an unbounded fixed-count repeat while analysing a custom group (leviroutes-j6sv)", function() {
+    var hugeCounts = [
+      "/x/:id((a{2,3}|a{100000000}){2})",   // per-atom repeat loop
+      "/x/:id(((a){100000000}|a{2,3}){2})", // group repeat loop (count * inner atoms)
+      "/x/:id((a{2,3}|a{1000000}){2})",
+      "/x/:id((a{2,3}|a{600}){2})"          // just above MAX_EXPANDED_ATOMS
+    ];
+    hugeCounts.forEach(function(pattern) {
+      var r = new routes();
+      expect(function() {
+        r.get(pattern, function(){});
+      }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+    });
+
+    // Controls either side of the cap: the verdict is the same, so the cap is a bound on the guard's
+    // own allocation and not a change to what it accepts.
+    var belowCap = new routes();
+    expect(function() {
+      belowCap.get("/x/:id((a{2,3}|a{500}){2})", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    // A fixed count that the analysis does expand still registers and matches, so the cap cannot be
+    // satisfied by refusing every fixed-count group.
+    var expanded = new routes();
+    expanded.get("/x/:id((\\d{1,3}\\d{1,3}){4})", function(){});
+    expect(expanded.getRoutes()[0].regex.regexp).toEqual(/^(?:\/x\/((\d{1,3}\d{1,3}){4}))$/);
+  });
 });
