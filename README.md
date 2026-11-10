@@ -140,7 +140,7 @@ The API is available natively in current browsers and in Node 24+; elsewhere loa
 The constructor does not check for the API: the first `get()`/`post()` is what throws a message
 saying so. Matching is still on the
 pathname, and only named groups become `req.params`. See
-[`docs/urlpattern-investigation.md`](docs/urlpattern-investigation.md) for the measurements behind
+[`docs/urlpattern-investigation.md`](https://github.com/PaulKinlan/leviroutes/blob/master/docs/urlpattern-investigation.md) for the measurements behind
 this and the migration plan.
 
 ### POST Request Handling
@@ -289,7 +289,7 @@ are not parsed; stream them from `req.request` inside your route as usual.
 
 ## Examples
 
-Check out the [examples](examples/) directory for complete working examples demonstrating:
+Check out the [examples](https://github.com/PaulKinlan/leviroutes/tree/master/examples) directory for complete working examples demonstrating:
 
 - **GET Routes**: Basic routing with HTML5 History API
 - **POST Routes**: Form interception and handling
@@ -321,7 +321,7 @@ npm run verify:package    # static + runtime package gate (registry pinning, lif
 
 ### URLPattern investigation
 
-[`docs/urlpattern-investigation.md`](docs/urlpattern-investigation.md) assesses the URL Pattern
+[`docs/urlpattern-investigation.md`](https://github.com/PaulKinlan/leviroutes/blob/master/docs/urlpattern-investigation.md) assesses the URL Pattern
 API as a replacement for the built-in matcher (GH #22): what it would fix, what it would break,
 and the measured cost. Short version: feasible, not a drop-in swap.
 
