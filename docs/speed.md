@@ -50,15 +50,15 @@ Recount with `/usr/bin/time -f 'npm-test wall=%es' npm test`. Earlier revisions 
 raising the budget.
 
 ### Stage 3: Gate Tooling Self-Tests (`bash tools/fast-gate.test.sh`) — ~2 s
-*Measured 2026-11-10 on the fleet VM (2 vCPU, load average 0.66): 1.86 s wall, `gate tooling tests: 98
-passed, 0 failed`. Recount with `/usr/bin/time -f 'selftest wall=%es' bash tools/fast-gate.test.sh`, and
+*Measured 2026-11-10 on the fleet VM (2 vCPU, load average 0.66): 1.86 s wall for 98 assertions; 99 after
+leviroutes-4oa added 1m, `gate tooling tests: 99 passed, 0 failed`. Recount with `/usr/bin/time -f 'selftest wall=%es' bash tools/fast-gate.test.sh`, and
 recount the per-section counts after any edit to the file with `bash tools/fast-gate.test.sh 2>&1 | awk
 '/=== Section 1/{s=1} /=== Section 2/{s=2} /=== Section 3/{s=3} /=== Section 4/{s=4} /^ *ok /{c[s]++}
 END{for(i=1;i<=4;i++) printf "Section %d: %d\n", i, c[i]}'` — a stale count here is a stale contract,
 because `tools/fast-gate.sh` and `tools/full-gate.sh` cite this document. Only the whole-suite time is
 recorded here: at ~2 s the four sections are not separable meaningfully on this VM, so an earlier
 per-section second count (which summed to ~40 s) has been dropped rather than restated.*
-- **Section 1 (58 tests):** Selection mapping, fail-loud unmapped rejection, spec self-mapping, exemptions, `--list`, dead row rejection, and coverage contract conformance. Direct exit code capture eliminates 9 redundant runner child processes.
+- **Section 1 (59 tests):** Selection mapping, fail-loud unmapped rejection, spec self-mapping, exemptions, `--list`, dead row rejection, coverage contract conformance, and the inherited compile cache being cleared before any suite runs (leviroutes-4oa). Direct exit code capture eliminates 9 redundant runner child processes.
 - **Section 2 (11 tests):** `tools/check.conf` validation, drift detection, and `--install` stamping.
 - **Section 3 (6 tests):** `tools/full-gate.sh` step execution and failure loud-reporting orchestration.
 - **Section 4 (23 tests):** End-to-end publish lifecycle verification:
