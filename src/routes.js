@@ -327,6 +327,28 @@ const routes = function(options) {
             i = closeBrace + 1;
           }
         }
+        if (innerRuns.runs.length === 1) {
+          // leviroutes-23db: a single-run inner group ('(a)', '(a{2})') merges back into one run
+          // on every repetition, so runs.length never grew and the MAX_EXPANDED_RUNS check below
+          // never fired - '{999999999}' ran the absorb loop a billion times and blocked the event
+          // loop for 12s on a 30-character route ('{99999999999}' extrapolated to ~23 minutes).
+          // Repeating one run c times is arithmetic, not iteration: the result is that run with
+          // count multiplied, and the length is innerRuns.length * count. Same runs, same length,
+          // same verdicts, O(1) instead of O(count).
+          // count * innerCount can leave the safe-integer range (a 16-digit quantifier on a group
+          // with a quantifier of its own needs 17 characters of route text). Past 2^53 this
+          // multiplication silently rounds, and length is only ever compared, so answer "too
+          // complex" (the caller reads that as "they overlap", i.e. REJECT) instead of comparing
+          // a rounded length. Before this, that pattern ran for decades rather than answering.
+          var reps = innerRuns.runs[0].count * count;
+          if (!Number.isSafeInteger(reps)) return EXPANSION_TOO_COMPLEX;
+          appendRun(innerRuns.runs[0].atom, reps);
+          if (runs.length > MAX_EXPANDED_RUNS) return EXPANSION_TOO_COMPLEX;
+          continue;
+        }
+        // With two or more runs in the inner group the reps cannot all merge (adjacent runs in an
+        // encoding never share an atom, so each copy pushes at least one new run) and runs.length
+        // hits MAX_EXPANDED_RUNS within a bounded number of iterations.
         for (var rep = 0; rep < count; rep++) {
           absorb(innerRuns);
           if (runs.length > MAX_EXPANDED_RUNS) return EXPANSION_TOO_COMPLEX;
