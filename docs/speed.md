@@ -40,18 +40,30 @@ and byte-matching an artifact (leviroutes-x8g).
 Measured 2026-11-10 on the fleet VM: 0.64 s wall for the whole stage. The pre-no-build stage spent ~12 s
 of it on `npm run build` plus a byte-match and a `dist/` smoke test, all of which are gone.
 
-### Stage 2: Full Spec Suite (`npm test`) — ~40–45 s
-- 114 specs across 10 test suites (`spec/*.spec.mjs`, including `spec/verifypackage-lifecycle.spec.mjs` and `spec/verifypackage-registry.spec.mjs`)
-- **Fixture isolation constraint:** Every single spec constructs an isolated JSDOM instance (`spec/helpers/dom-helper.mjs`) to guarantee unwrapped `history.pushState` and zero listener leaks across specs (`spec/fixtureisolation.spec.mjs`). This intentional architectural isolation accounts for the ~40 s test execution time.
+### Stage 2: Full Spec Suite (`npm test`) — ~3 s
+- 182 specs across 10 test suites (`spec/*.spec.mjs`, including `spec/verifypackage-lifecycle.spec.mjs` and `spec/verifypackage-registry.spec.mjs`)
+- **Fixture isolation constraint:** Every single spec constructs an isolated JSDOM instance (`spec/helpers/dom-helper.mjs`) to guarantee unwrapped `history.pushState` and zero listener leaks across specs (`spec/fixtureisolation.spec.mjs`). The isolation is a correctness constraint, not the reason for the historical ~40 s figure: the same suites measure 2.1 s in-suite / 2.9 s wall on 2026-11-10.
 
-### Stage 3: Gate Tooling Self-Tests (`bash tools/fast-gate.test.sh`) — ~40 s
-*Counts below were recounted on 2026-11-07 against this tree: 98 assertions in total, matching the self-test's own `gate tooling tests: 98 passed, 0 failed` summary line. Recount after any edit to `tools/fast-gate.test.sh` with `bash tools/fast-gate.test.sh 2>&1 | awk '/=== Section 1/{s=1} /=== Section 2/{s=2} /=== Section 3/{s=3} /=== Section 4/{s=4} /^ *ok /{c[s]++} END{for(i=1;i<=4;i++) printf "Section %d: %d\n", i, c[i]}'` — a stale count here is a stale contract, because `tools/fast-gate.sh` and `tools/full-gate.sh` cite this document.*
-- **Section 1 (58 tests, ~3 s):** Selection mapping, fail-loud unmapped rejection, spec self-mapping, exemptions, `--list`, dead row rejection, and coverage contract conformance. Direct exit code capture eliminates 9 redundant runner child processes.
-- **Section 2 (11 tests, ~1 s):** `tools/check.conf` validation, drift detection, and `--install` stamping.
-- **Section 3 (6 tests, ~10 s):** `tools/full-gate.sh` step execution and failure loud-reporting orchestration.
-- **Section 4 (23 tests, ~26 s):** End-to-end publish lifecycle verification:
+Measured 2026-11-10 on the fleet VM (2 vCPU, load average 0.66): 2.90 s wall for the whole suite.
+Recount with `/usr/bin/time -f 'npm-test wall=%es' npm test`. Earlier revisions of this document recorded
+~40–45 s for 114 specs; if a recount lands back near that figure, find what re-introduced the cost before
+raising the budget.
+
+### Stage 3: Gate Tooling Self-Tests (`bash tools/fast-gate.test.sh`) — ~2 s
+*Measured 2026-11-10 on the fleet VM (2 vCPU, load average 0.66): 1.86 s wall, `gate tooling tests: 98
+passed, 0 failed`. Recount with `/usr/bin/time -f 'selftest wall=%es' bash tools/fast-gate.test.sh`, and
+recount the per-section counts after any edit to the file with `bash tools/fast-gate.test.sh 2>&1 | awk
+'/=== Section 1/{s=1} /=== Section 2/{s=2} /=== Section 3/{s=3} /=== Section 4/{s=4} /^ *ok /{c[s]++}
+END{for(i=1;i<=4;i++) printf "Section %d: %d\n", i, c[i]}'` — a stale count here is a stale contract,
+because `tools/fast-gate.sh` and `tools/full-gate.sh` cite this document. Only the whole-suite time is
+recorded here: at ~2 s the four sections are not separable meaningfully on this VM, so an earlier
+per-section second count (which summed to ~40 s) has been dropped rather than restated.*
+- **Section 1 (58 tests):** Selection mapping, fail-loud unmapped rejection, spec self-mapping, exemptions, `--list`, dead row rejection, and coverage contract conformance. Direct exit code capture eliminates 9 redundant runner child processes.
+- **Section 2 (11 tests):** `tools/check.conf` validation, drift detection, and `--install` stamping.
+- **Section 3 (6 tests):** `tools/full-gate.sh` step execution and failure loud-reporting orchestration.
+- **Section 4 (23 tests):** End-to-end publish lifecycle verification:
   - 17a / 17a2: Real positive full verification executed as a standalone CLI process (`node tools/verify-package.mjs`) covering static configuration, export resolution and functional smoke through the resolved entry point — there is no build artifact to create or byte-match since leviroutes-o71.
-  - 17b–17n (~3 s): 17 negative failure assertions batched into a single in-process Node runner, eliminating 20+ cold-start process invocations while preserving exact error message contracts; 17o / 17o2 add the in-sync dependency bump parity pair, 17p asserts the runner accounted for every Section 4 assertion, and 17q asserts a simulated runner exit 37 fails closed rather than rejecting zero checks.
+  - 17b–17n: 17 negative failure assertions batched into a single in-process Node runner, eliminating 20+ cold-start process invocations while preserving exact error message contracts; 17o / 17o2 add the in-sync dependency bump parity pair, 17p asserts the runner accounted for every Section 4 assertion, and 17q asserts a simulated runner exit 37 fails closed rather than rejecting zero checks.
 
 ## 3. History & Measured Optimizations
 
@@ -76,7 +88,12 @@ of it on `npm run build` plus a byte-match and a `dist/` smoke test, all of whic
 
 ## 4. Timeout Budget Decision
 
-- **Fast Gate:** Budget is ≤ 60 s. Fast gate runs mapped suites in parallel (`JOBS=4`), consistently completing in ≤ 60 s (`CHECK_FAST_TIMEOUT=60`).
-- **Full Gate:** Median runtime is ~95 s.
-  - While individual subcomponents can complete faster on idle unloaded hardware, the combination of per-spec JSDOM isolation (~40 s), package verification (~1 s, no build) and comprehensive gate tooling self-tests (~54 s) establishes that baseline on 2 vCPUs.
-  - `CHECK_TIMEOUT=300` in `tools/check.conf` is retained. A 300 s bound provides a healthy 3x safety margin against CPU contention and throttling on multi-tenant VMs during concurrent runs, eliminating false-positive exit 124 kills while remaining firmly bounded.
+- **Fast Gate:** Budget is ≤ 60 s. Fast gate runs mapped suites in parallel (`JOBS=4`); the whole spec suite is 2.90 s wall (2026-11-10), so a mapped subset is well inside 60 s (`CHECK_FAST_TIMEOUT=60`).
+- **Full Gate:** Median runtime is ~5.5 s, measured 2026-11-10: package verification 0.64 s + spec suite
+  2.90 s + tooling self-tests 1.86 s, run sequentially on 2 vCPUs at load average 0.66.
+  - Earlier revisions recorded ~95–120 s. Most of that was a ~24 s Terser build (removed by leviroutes-o71)
+    and a ~40 s spec suite that now measures 2.9 s, so the figure is a measurement, not a re-estimate.
+  - `CHECK_TIMEOUT=300` in `tools/check.conf` is retained as the contract's ceiling for a saturated VM. At
+    the current cost it is a ~50x margin; tightening it is a budget decision for its own bead, not a
+    documentation change, and the bound still eliminates false-positive exit 124 kills under CPU contention
+    on multi-tenant VMs while remaining firmly bounded.
