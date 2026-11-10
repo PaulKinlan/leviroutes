@@ -35,7 +35,8 @@ describe("verify-package no-build lifecycle contract", function() {
 
   // Satisfies every static check up to (and including) the lifecycle chain,
   // so the control's first failure is the jasmine-config check that follows it.
-  var fixture = (overrides) => {
+  // lockPackages lets a case add lockfile entries (leviroutes-e0f's resolved-URL check).
+  var fixture = (overrides, lockPackages) => {
     const pkg = Object.assign({
       name: "fixture",
       version: "1.0.0",
@@ -52,7 +53,7 @@ describe("verify-package no-build lifecycle contract", function() {
     }, overrides || {});
     fs.writeFileSync(path.join(root, "package.json"), JSON.stringify(pkg));
     fs.writeFileSync(path.join(root, "package-lock.json"), JSON.stringify({
-      name: "fixture", version: "1.0.0", packages: {}
+      name: "fixture", version: "1.0.0", packages: lockPackages || {}
     }));
   };
 
@@ -307,5 +308,70 @@ describe("verify-package no-build lifecycle contract", function() {
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain("files[] uses a negation (!src/routes.js)");
+  });
+
+  // leviroutes-e0f: pinning the publish endpoint is not enough. `npm ci` fetches the URL recorded in
+  // each lockfile entry, so a substituted host there installs bytes the pinned registry never served.
+  const SRI = "sha512-" + Buffer.alloc(64, 7).toString("base64");
+
+  it("accepts lockfile entries resolved from the pinned registry", async function() {
+    fixture({}, {
+      "node_modules/left-pad": {
+        version: "1.3.0", integrity: SRI,
+        resolved: "https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz"
+      }
+    });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    // The resolved-URL check passed; the first failing check is still the jasmine config.
+    expect(result.error).toContain("missing spec/support/jasmine.json");
+  });
+
+  it("rejects a lockfile entry resolved from another host", async function() {
+    fixture({}, {
+      "node_modules/left-pad": {
+        version: "1.3.0", integrity: SRI,
+        resolved: "https://registry.example.internal/left-pad/-/left-pad-1.3.0.tgz"
+      }
+    });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("resolves packages from outside https://registry.npmjs.org/");
+    expect(result.error).toContain("registry.example.internal");
+  });
+
+  it("rejects a lockfile entry resolved over plain http or a git spec", async function() {
+    fixture({}, {
+      "node_modules/a": {
+        version: "1.0.0", integrity: SRI,
+        resolved: "http://registry.npmjs.org/a/-/a-1.0.0.tgz"
+      },
+      "node_modules/b": {
+        version: "1.0.0", integrity: SRI,
+        resolved: "git+ssh://git@github.com/someone/b.git"
+      }
+    });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("node_modules/a -> http://registry.npmjs.org/");
+    expect(result.error).toContain("node_modules/b -> git+ssh://");
+  });
+
+  it("still accepts a local file/link resolution, which no remote host can substitute", async function() {
+    fixture({}, {
+      "node_modules/local": { version: "1.0.0", resolved: "file:../local-pkg" },
+      "node_modules/linked": { version: "1.0.0", resolved: "link:../linked-pkg" }
+    });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("missing spec/support/jasmine.json");
   });
 });

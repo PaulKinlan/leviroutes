@@ -83,6 +83,10 @@ npm run prepublishOnly   # npm test && npm run verify:package
   (leviroutes-o71). The browser condition in `package.json` resolves to the same reviewed source file.
 - `npm publish` runs exactly that chain, and `tools/verify-package.mjs` rejects any `prepublishOnly`
   that adds, drops, reorders or masks a segment.
+- There is deliberately no `npm audit` step in the publish chain (leviroutes-e0f): the gate must answer
+  offline and deterministically, the package has no production dependencies and two devDependencies, and
+  advisories for those are tracked by the nightly dependency station as beads rather than blocking a
+  publish. The guard's own npm invocations therefore run with `npm_config_audit=false`.
 
 ### Testing Locally
 Start a local web server to test examples:
