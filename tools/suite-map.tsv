@@ -25,6 +25,12 @@ package-lock.json	tools/verify-package.mjs tools/fast-gate.test.sh spec/middlewa
 tools/verify-package.mjs	tools/verify-package.mjs tools/fast-gate.test.sh spec/verifypackage-registry.spec.mjs spec/verifypackage-lifecycle.spec.mjs
 spec/verifypackage-registry.spec.mjs	spec/verifypackage-registry.spec.mjs
 spec/verifypackage-lifecycle.spec.mjs	spec/verifypackage-lifecycle.spec.mjs
+# The repository-hygiene spec asserts the tree passes its own publish gate, so it is selected by
+# the files that decide whether the lifecycle (and therefore that gate) can run at all. It is the
+# only coverage that survives a committed .npmrc: prepublishOnly cannot defend itself
+# (leviroutes-f9n), while the suites run directly under the fleet's gates.
+.gitignore	spec/repohygiene.spec.mjs
+spec/repohygiene.spec.mjs	spec/repohygiene.spec.mjs
 tools/fast-gate.sh	tools/fast-gate.test.sh tools/verify-package.mjs
 tools/fast-gate.test.sh	tools/fast-gate.test.sh
 tools/full-gate.sh	tools/fast-gate.test.sh tools/verify-package.mjs

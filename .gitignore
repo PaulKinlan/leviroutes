@@ -4,3 +4,8 @@ dist/
 .DS_Store
 coverage/
 .nyc_output/
+
+# leviroutes-f9n: a committed .npmrc can disarm the whole publish gate (ignore-scripts=true
+# skips prepublishOnly, so no test or verify-package step runs and nothing says so). The
+# publish gate refuses such a file, but only when it runs - so keep the file out of git.
+.npmrc

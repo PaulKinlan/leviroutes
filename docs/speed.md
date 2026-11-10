@@ -35,7 +35,7 @@ Under representative VM load (load average 1–3), the full gate executes three 
 - Package condition export resolution in child processes (default import, browser condition, functional execution) (~0.6 s)
 
 ### Stage 2: Full Spec Suite (`npm test`) — ~40–45 s
-- 114 specs across 10 test suites (`spec/*.spec.mjs`, including `spec/verifypackage-lifecycle.spec.mjs` and `spec/verifypackage-registry.spec.mjs`)
+- 184 specs across 11 test suites (`spec/*.spec.mjs`, including `spec/verifypackage-lifecycle.spec.mjs`, `spec/verifypackage-registry.spec.mjs` and `spec/repohygiene.spec.mjs`)
 - **Fixture isolation constraint:** Every single spec constructs an isolated JSDOM instance (`spec/helpers/dom-helper.mjs`) to guarantee unwrapped `history.pushState` and zero listener leaks across specs (`spec/fixtureisolation.spec.mjs`). This intentional architectural isolation accounts for the ~40 s test execution time.
 
 ### Stage 3: Gate Tooling Self-Tests (`bash tools/fast-gate.test.sh`) — ~40 s
