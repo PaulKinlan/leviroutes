@@ -194,7 +194,12 @@ describe("server dispatch", function() {
 
     var params = [];
     for (var i = 0; i < 2000; i++) {
-      params.push("p" + i + "=v");
+      // leviroutes-w6n5: a duplicate of `p0` is planted past the scan cap, so this assertion is
+      // mutant-blind no longer. Without the early break the iteration continues, reaches the
+      // duplicate and overwrites p0 with "overwritten"; with the break, iteration stops at the
+      // cap and p0 keeps its first value. Asserting only on the distinct-key count and on
+      // p1024 could not tell the two apart, because the key cap already dropped p1024.
+      params.push(i === 1500 ? "p0=overwritten" : "p" + i + "=v");
     }
     var url = "/bulk?" + params.join("&");
     expect(url.length).toBeLessThan(16384);
@@ -203,6 +208,7 @@ describe("server dispatch", function() {
     expect(Object.keys(seen.values).length).toEqual(1024);
     expect(seen.values["p1023"]).toEqual("v");
     expect(seen.values["p1024"]).toBeUndefined();
+    expect(seen.values["p0"]).toEqual("v");
   });
 
   it("should run the middleware chain before the route callback", function() {
