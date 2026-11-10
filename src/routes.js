@@ -174,8 +174,12 @@ const routes = function(options) {
       if (c === "\\") {
         i += 2;
       } else if (c === "[") {
+        // leviroutes-4qix: this parser is handed branch text by the guard, so it must
+        // terminate on every input it can receive. `close` is -1 for an unterminated
+        // class and `close + 1` then rewinds i to 0, looping forever; step over the
+        // bracket and treat the rest as literals instead.
         var close = b.indexOf("]", i);
-        i = close + 1;
+        i = close === -1 ? i + 1 : close + 1;
       } else if (c === "(") {
         if (b.slice(i, i + 3) === "(?:") i += 3;
         else i += 1;
@@ -204,17 +208,25 @@ const routes = function(options) {
           atomVar = true;
           i++;
         } else if (b[i] === "{") {
+          // leviroutes-4qix: the same rewind - an unmatched '{' made closeBrace -1 and
+          // `i = closeBrace + 1` reset i to 0, so registering a route with one
+          // unclosed brace hung the process with no error. Only skip to the closer when
+          // there is one; otherwise consume the brace as a literal.
           var closeBrace = b.indexOf("}", i);
-          var m = /^\{(\d+)(?:,(\d*))?\}/.exec(b.slice(i, closeBrace + 1));
-          if (m) {
-            var min = parseInt(m[1], 10);
-            var max = m[2] === undefined ? min : (m[2] === "" ? Infinity : parseInt(m[2], 10));
-            if (max !== min) {
-              atomVar = true;
+          if (closeBrace === -1) {
+            i++;
+          } else {
+            var m = /^\{(\d+)(?:,(\d*))?\}/.exec(b.slice(i, closeBrace + 1));
+            if (m) {
+              var min = parseInt(m[1], 10);
+              var max = m[2] === undefined ? min : (m[2] === "" ? Infinity : parseInt(m[2], 10));
+              if (max !== min) {
+                atomVar = true;
+              }
+              atomLen = atomLen * min;
             }
-            atomLen = atomLen * min;
+            i = closeBrace + 1;
           }
-          i = closeBrace + 1;
         }
       }
 
@@ -244,9 +256,18 @@ const routes = function(options) {
         atom = b.slice(i, i + 2);
         i += 2;
       } else if (c === "[") {
+        // leviroutes-4qix: same defect as branchLength - an unterminated class made
+        // close -1, so `i = close + 1` reset i to 0 and this loop never ended. Not
+        // reachable through the route validator today (it rejects the shape as an
+        // unclosed '(' first), but the helper must not depend on that.
         var close = b.indexOf("]", i);
-        atom = b.slice(i, close + 1);
-        i = close + 1;
+        if (close === -1) {
+          atom = b[i];
+          i++;
+        } else {
+          atom = b.slice(i, close + 1);
+          i = close + 1;
+        }
       } else if (c === "(") {
         if (b.slice(i, i + 3) === "(?:") i += 3;
         else i += 1;

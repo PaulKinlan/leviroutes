@@ -717,4 +717,36 @@ describe("route parsing", function() {
     r46.get("/x/:id((\\w+){2})", function(){});
     expect(r46.getRoutes()[0].regex.regexp).toEqual(/^(?:\/x\/((\w+){2}))$/);
   });
+
+  // leviroutes-4qix: the guard's own parsers read a branch's text, so they have to terminate on
+  // every input the guard can hand them. branchLength() looked up the closer with indexOf and then
+  // did `i = close + 1`, so an unmatched '{' (close === -1) reset i to 0 and the while-loop never
+  // advanced: registering any of the shapes below hung the process at import time with no error.
+  // The assertions pin the terminating verdict, so a regression to the loop cannot pass silently
+  // and a change in the guard's decision cannot pass either.
+  it("should terminate the pattern analysis for a custom group holding an unmatched '{' (leviroutes-4qix)", function() {
+    var unmatchedBrace = [
+      "/x/:id((a{2,3}|a{){2})",
+      "/x/:id((a{1,2}|a{){1,2})",
+      "/x/:id((\\d{1,2}|\\d{){1,2})",
+      "/x/:id(([a-z]{1,3}|[a-z]{){1,3})",
+      "/x/:id((a{2,}|a{){2,})"
+    ];
+    unmatchedBrace.forEach(function(pattern) {
+      var r = new routes();
+      expect(function() {
+        r.get(pattern, function(){});
+      }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+    });
+
+    // Controls: an unbalanced brace outside a repeated alternation never reaches the analysis and
+    // stays a literal in the compiled pattern, exactly as the regexp engine reads it.
+    var literalBrace = new routes();
+    literalBrace.get("/x/a{", function(){});
+    expect(literalBrace.getRoutes()[0].regex.regexp).toEqual(/^(?:\/x\/a{)$/);
+
+    var literalBraceWithTrailing = new routes();
+    literalBraceWithTrailing.get("/x/a{b", function(){});
+    expect(literalBraceWithTrailing.getRoutes()[0].regex.regexp).toEqual(/^(?:\/x\/a{b)$/);
+  });
 });
