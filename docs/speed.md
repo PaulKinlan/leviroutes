@@ -50,8 +50,8 @@ Recount with `/usr/bin/time -f 'npm-test wall=%es' npm test`. Earlier revisions 
 raising the budget.
 
 ### Stage 3: Gate Tooling Self-Tests (`bash tools/fast-gate.test.sh`) — ~2 s
-*Measured 2026-11-10 on the fleet VM (2 vCPU, load average 0.66): 1.86 s wall for 98 assertions; 99 after
-leviroutes-4oa added 1m, `gate tooling tests: 99 passed, 0 failed`. Recount with `/usr/bin/time -f 'selftest wall=%es' bash tools/fast-gate.test.sh`, and
+*Measured 2026-11-10 on the fleet VM (2 vCPU, load average 0.66): 1.86 s wall for 98 assertions; 100 after
+leviroutes-4oa added 1m and leviroutes-d6p added 17d3, `gate tooling tests: 100 passed, 0 failed`. Recount with `/usr/bin/time -f 'selftest wall=%es' bash tools/fast-gate.test.sh`, and
 recount the per-section counts after any edit to the file with `bash tools/fast-gate.test.sh 2>&1 | awk
 '/=== Section 1/{s=1} /=== Section 2/{s=2} /=== Section 3/{s=3} /=== Section 4/{s=4} /^ *ok /{c[s]++}
 END{for(i=1;i<=4;i++) printf "Section %d: %d\n", i, c[i]}'` — a stale count here is a stale contract,
@@ -61,7 +61,7 @@ per-section second count (which summed to ~40 s) has been dropped rather than re
 - **Section 1 (59 tests):** Selection mapping, fail-loud unmapped rejection, spec self-mapping, exemptions, `--list`, dead row rejection, coverage contract conformance, and the inherited compile cache being cleared before any suite runs (leviroutes-4oa). Direct exit code capture eliminates 9 redundant runner child processes.
 - **Section 2 (11 tests):** `tools/check.conf` validation, drift detection, and `--install` stamping.
 - **Section 3 (6 tests):** `tools/full-gate.sh` step execution and failure loud-reporting orchestration.
-- **Section 4 (23 tests):** End-to-end publish lifecycle verification:
+- **Section 4 (24 tests):** End-to-end publish lifecycle verification:
   - 17a / 17a2: Real positive full verification executed as a standalone CLI process (`node tools/verify-package.mjs`) covering static configuration, export resolution and functional smoke through the resolved entry point — there is no build artifact to create or byte-match since leviroutes-o71.
   - 17b–17n: 17 negative failure assertions batched into a single in-process Node runner, eliminating 20+ cold-start process invocations while preserving exact error message contracts; 17o / 17o2 add the in-sync dependency bump parity pair, 17p asserts the runner accounted for every Section 4 assertion, and 17q asserts a simulated runner exit 37 fails closed rather than rejecting zero checks.
 
