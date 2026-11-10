@@ -301,11 +301,23 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
   // open rather than arrive as a lockfile edit.
   const LOCAL_RESOLUTION = /^(?:file|link):/;
   const resolvedOffenders = [];
+  const integrityOffenders = [];
   for (const [pkgKey, pkgEntry] of Object.entries(lock.packages)) {
     const resolved = pkgEntry && pkgEntry.resolved;
     if (typeof resolved !== 'string' || resolved.trim() === '') continue;
     if (LOCAL_RESOLUTION.test(resolved)) continue;
     if (!resolved.startsWith(OFFICIAL_REGISTRY)) resolvedOffenders.push(`${pkgKey} -> ${resolved}`);
+    // leviroutes-6dub: host pinning bounds WHERE the bytes come from, but an entry with no integrity hash
+    // has nothing to check those bytes against - npm installs whatever the host returns, and the SRI loop
+    // above only validates a hash that is present. Stripped-integrity lockfile edits are the accidental
+    // half of supply-chain substitution, so a remote resolution now requires one. Local file:/link:
+    // resolutions legitimately carry none and are exempt.
+    if (!pkgEntry.integrity) integrityOffenders.push(pkgKey);
+  }
+  if (integrityOffenders.length > 0) {
+    const shown = integrityOffenders.slice(0, 3).join(', ');
+    const extra = integrityOffenders.length > 3 ? `, +${integrityOffenders.length - 3} more` : '';
+    return fail(`package-lock.json resolves packages without an integrity hash (${shown}${extra}); a remote tarball must be checked against a recorded hash`);
   }
   if (resolvedOffenders.length > 0) {
     const shown = resolvedOffenders.slice(0, 3).join(', ');

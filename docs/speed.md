@@ -41,7 +41,7 @@ Measured 2026-11-10 on the fleet VM: 0.64 s wall for the whole stage. The pre-no
 of it on `npm run build` plus a byte-match and a `dist/` smoke test, all of which are gone.
 
 ### Stage 2: Full Spec Suite (`npm test`) — ~3 s
-- 186 specs across 10 test suites (`spec/*.spec.mjs`, including `spec/verifypackage-lifecycle.spec.mjs` and `spec/verifypackage-registry.spec.mjs`); 182 of them when the 2.90 s wall below was measured, the four since (leviroutes-e0f) being sub-millisecond fixture checks
+- 188 specs across 10 test suites (`spec/*.spec.mjs`, including `spec/verifypackage-lifecycle.spec.mjs` and `spec/verifypackage-registry.spec.mjs`); 182 when the 2.90 s wall below was measured, the six since (leviroutes-e0f, leviroutes-6dub) being sub-millisecond fixture checks
 - **Fixture isolation constraint:** Every single spec constructs an isolated JSDOM instance (`spec/helpers/dom-helper.mjs`) to guarantee unwrapped `history.pushState` and zero listener leaks across specs (`spec/fixtureisolation.spec.mjs`). The isolation is a correctness constraint, not the reason for the historical ~40 s figure: the same suites measure 2.1 s in-suite / 2.9 s wall on 2026-11-10.
 
 Measured 2026-11-10 on the fleet VM (2 vCPU, load average 0.66): 2.90 s wall for the whole suite.

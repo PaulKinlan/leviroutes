@@ -374,4 +374,32 @@ describe("verify-package no-build lifecycle contract", function() {
     expect(result.ok).toBe(false);
     expect(result.error).toContain("missing spec/support/jasmine.json");
   });
+
+  // leviroutes-6dub: host pinning says where the bytes come from; an entry with no integrity hash has
+  // nothing to check them against, and the SRI loop only validates a hash that is present.
+  it("rejects a remote lockfile entry with no integrity hash", async function() {
+    fixture({}, {
+      "node_modules/a": {
+        version: "1.0.0",
+        resolved: "https://registry.npmjs.org/a/-/a-1.0.0.tgz"
+      }
+    });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("resolves packages without an integrity hash (node_modules/a)");
+  });
+
+  it("still accepts a local entry with no integrity hash, which has none by construction", async function() {
+    fixture({}, {
+      "node_modules/local": { version: "1.0.0", resolved: "file:../local-pkg" }
+    });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    // Local entries are exempt from the integrity requirement; the control's failure is unrelated.
+    expect(result.error).toContain("missing spec/support/jasmine.json");
+  });
 });
