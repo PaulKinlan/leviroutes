@@ -164,6 +164,34 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
     }
   }
 
+  // leviroutes-eew: only PRESENCE was checked, so the no-build publish layout leviroutes-o71
+  // installed could regress silently - a package.json whose main is src/routes.js but whose
+  // browser condition (or files[] entry) points at a gitignored dist/ artifact passed the gate,
+  // which is exactly the defect o71 fixed. Normalise the targets once and bind them together.
+  const normalizeTarget = (target) => path.posix.normalize(String(target).trim().replace(/^\.\//, '')).replace(/\/+$/, '');
+  const normalizedEntries = requiredEntries.map((entry) => ({ field: entry.field, target: normalizeTarget(entry.target) }));
+  const primaryTarget = normalizedEntries.find((entry) => entry.field === 'main').target;
+  for (const entry of normalizedEntries) {
+    if (entry.target !== primaryTarget) {
+      return fail(`${entry.field} resolves to ${entry.target} but main resolves to ${primaryTarget}; every entry point must load the same shipped source rather than a substituted artifact`);
+    }
+  }
+  // The published tree has to be stated, cover that source, and exclude build output: npm ships
+  // every path under files[], so a stale 'dist/' entry alone re-publishes an unreviewed artifact.
+  const BUILD_OUTPUT_PATTERN = /(^|\/)(dist|build|out|bundle|bundles)(\/|$)|\.min\.js$/i;
+  if (!Array.isArray(pkg.files) || pkg.files.length === 0) {
+    return fail('package.json files[] must list the published tree so the gate can verify it covers the shipped source and carries no build output');
+  }
+  const filesEntries = pkg.files.map(normalizeTarget);
+  const buildOutputs = filesEntries.filter((entry) => BUILD_OUTPUT_PATTERN.test(entry));
+  if (buildOutputs.length > 0) {
+    return fail(`package.json files[] names build output (${buildOutputs.join(', ')}); the package ships reviewed source, not a generated artifact`);
+  }
+  const sourceCovered = filesEntries.some((entry) => entry === primaryTarget || primaryTarget.startsWith(entry + '/'));
+  if (!sourceCovered) {
+    return fail(`package.json files[] does not include the shipped source ${primaryTarget}`);
+  }
+
   // Validate package-lock.json configuration, integrity hashes, and dependency parity BEFORE any execution
   const lockPath = path.join(root, 'package-lock.json');
   if (!fs.existsSync(lockPath)) {
