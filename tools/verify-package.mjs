@@ -75,40 +75,68 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
   if (envRegistry && normalizeRegistry(envRegistry) !== OFFICIAL_REGISTRY) {
     registryOffenders.push(`environment npm_config_registry=${envRegistry}`);
   }
+  // leviroutes-grg4: ignore-scripts comes from the environment too, and that is how CI normally
+  // sets it, but only npm_config_registry was read - so 'npm_config_ignore_scripts=true' passed
+  // the gate while npm skipped the whole prepublishOnly chain.
+  const envIgnoreScripts = process.env.npm_config_ignore_scripts || process.env.NPM_CONFIG_IGNORE_SCRIPTS;
+  if (envIgnoreScripts !== undefined && npmBoolean(envIgnoreScripts)) {
+    registryOffenders.push(`environment npm_config_ignore_scripts=${envIgnoreScripts.trim() || '(empty)'} disables the prepublishOnly lifecycle`);
+  }
   if (pkg.publishConfig && pkg.publishConfig.registry && normalizeRegistry(pkg.publishConfig.registry) !== OFFICIAL_REGISTRY) {
     registryOffenders.push(`package.json publishConfig.registry=${pkg.publishConfig.registry}`);
   }
-  const npmrcPath = path.join(root, '.npmrc');
-  if (fs.existsSync(npmrcPath)) {
+  // Scan one npm config file for the two settings that decide where a publish goes and whether the
+  // lifecycle runs at all. Returns the offenders so the project, user and global layers all report
+  // through the same rule instead of the project file being the only one checked (leviroutes-grg4).
+  const scanNpmrc = (label, file, unreadableFails) => {
+    if (!file || !fs.existsSync(file)) return [];
     let npmrc;
     try {
-      npmrc = fs.readFileSync(npmrcPath, 'utf8');
+      npmrc = fs.readFileSync(file, 'utf8');
     } catch (err) {
-      return fail(`unreadable .npmrc: ${err.message}`);
+      return unreadableFails
+        ? [label + ' unreadable: ' + err.message]
+        : [];
     }
+    const offenders = [];
     for (const rawLine of npmrc.split(/\r?\n/)) {
       const line = rawLine.trim();
       if (!line || line.startsWith('#') || line.startsWith(';')) continue;
       // The '=' is optional: a bare 'ignore-scripts' key is true to npm, and that is
       // exactly the shape a hand-written config uses when it means 'on'.
-      const m = /^(registry|ignore-scripts)\s*(?:=\s*(.*))?$/.exec(line);
+      // leviroutes-grg4: a scoped key (@scope:registry=) pins the registry for that scope and
+      // never matched this regex, so the gate could be green while a scope resolved elsewhere.
+      const m = /^(@[^:\s]+:)?(registry|ignore-scripts)\s*(?:=\s*(.*))?$/.exec(line);
       if (!m) continue;
-      const key = m[1];
+      const scope = m[1] || '';
+      const key = m[2];
       // ini drops a trailing ' # comment' / ' ; comment' - and npm also drops it when
       // there is NO whitespace in front of it, so 'false;comment' and 'false#c' both
       // run the lifecycle (measured on npm 11.19.1). Requiring whitespace flagged a
       // safe config (leviroutes-ago1).
-      const value = (m[2] === undefined ? '' : m[2]).replace(/[#;].*$/, '');
+      const value = (m[3] === undefined ? '' : m[3]).replace(/[#;].*$/, '');
       if (key === 'registry' && normalizeRegistry(value) !== OFFICIAL_REGISTRY) {
-        registryOffenders.push(`.npmrc registry=${value}`);
+        offenders.push(`${label} ${scope}registry=${value}`);
       }
       if (key === 'ignore-scripts' && npmBoolean(value)) {
-        registryOffenders.push(`.npmrc ignore-scripts=${value.trim() || '(bare key)'} disables the prepublishOnly lifecycle`);
+        offenders.push(`${label} ignore-scripts=${value.trim() || '(bare key)'} disables the prepublishOnly lifecycle`);
       }
     }
-  }
+    return offenders;
+  };
+  const npmrcOffenders = scanNpmrc('.npmrc', path.join(root, '.npmrc'), true);
+  registryOffenders.push(...npmrcOffenders);
+  // npm also reads a user-level and a global config file, and when the lifecycle runs under npm it
+  // exports their paths. Those layers are invisible to the gate otherwise, so read them when npm
+  // hands them over; a missing file is normal and is skipped. When the paths are absent the gate
+  // cannot see those layers - the README states that the release step must be a plain
+  // 'npm publish' with no --registry / --ignore-scripts flags (leviroutes-grg4).
+  const userConfig = process.env.npm_config_userconfig || process.env.NPM_CONFIG_USERCONFIG;
+  const globalConfig = process.env.npm_config_globalconfig || process.env.NPM_CONFIG_GLOBALCONFIG;
+  registryOffenders.push(...scanNpmrc('user-level .npmrc', userConfig, false));
+  registryOffenders.push(...scanNpmrc('global .npmrc', globalConfig, false));
   if (registryOffenders.length > 0) {
-    return fail(`publish registry must be ${OFFICIAL_REGISTRY} (offenders: ${registryOffenders.join('; ')})`);
+    return fail(`publish configuration must keep ${OFFICIAL_REGISTRY} and the prepublishOnly lifecycle (offenders: ${registryOffenders.join('; ')})`);
   }
 
   const requiredEntries = [

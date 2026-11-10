@@ -13,17 +13,24 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { verifyPackage } from '../tools/verify-package.mjs';
+import { isolateNpmEnv } from './helpers/npm-env-helper.mjs';
 
 describe("verify-package registry pinning", function() {
   const PKG = JSON.stringify({ name: "fixture", version: "1.0.0" });
 
   var root;
+  var restoreNpmEnv;
 
   beforeEach(function() {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "vp-registry-"));
+    // leviroutes-grg4: the guard now also reads npm's exported config paths, so clear the
+    // machine's npm environment to keep each verdict a function of the fixture alone.
+    restoreNpmEnv = isolateNpmEnv();
   });
 
   afterEach(function() {
+    if (restoreNpmEnv) restoreNpmEnv();
+    restoreNpmEnv = null;
     if (root) fs.rmSync(root, { recursive: true, force: true });
     root = null;
   });
@@ -147,6 +154,101 @@ describe("verify-package registry pinning", function() {
       } else {
         process.env.npm_config_registry = previous;
       }
+    }
+  });
+
+  // leviroutes-grg4: the guard read only the committed .npmrc, package.json publishConfig and
+  // npm_config_registry, so the three layers below each decided npm's behaviour while the gate
+  // stayed green. Each case is a layer the guard now covers; the controls prove the layer check
+  // is not simply failing everything.
+  it("fails when a scoped registry key in .npmrc points elsewhere", async function() {
+    fs.writeFileSync(path.join(root, "package.json"), PKG);
+    fs.writeFileSync(path.join(root, ".npmrc"), "@evil:registry=https://registry.example.internal/\n//registry.example.internal/:_authToken=fake\n");
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("@evil:registry=https://registry.example.internal/");
+  });
+
+  it("accepts a scoped registry key that points at the official registry", async function() {
+    fs.writeFileSync(path.join(root, "package.json"), PKG);
+    fs.writeFileSync(path.join(root, ".npmrc"), "@myscope:registry=https://registry.npmjs.org/\n");
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("missing main");
+  });
+
+  it("fails when the environment sets npm_config_ignore_scripts", async function() {
+    fs.writeFileSync(path.join(root, "package.json"), PKG);
+    process.env.npm_config_ignore_scripts = "true";
+    try {
+      const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain("npm_config_ignore_scripts");
+      expect(result.error).toContain("disables the prepublishOnly lifecycle");
+    } finally {
+      delete process.env.npm_config_ignore_scripts;
+    }
+  });
+
+  it("accepts a falsy npm_config_ignore_scripts, as npm's boolean coercion does", async function() {
+    fs.writeFileSync(path.join(root, "package.json"), PKG);
+    // npm's nopt rule again: only the exact strings 'false' and 'null' and numeric zero are
+    // falsy, so 'no' is TRUTHY and belongs in the failing set, not here.
+    for (const value of ["false", "0", "null"]) {
+      process.env.npm_config_ignore_scripts = value;
+      try {
+        const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+        expect(result.ok).toBe(false);
+        // The lifecycle is enabled for these spellings (npm's nopt rule), so the
+        // environment check did not fire and the first failure is the next one in line.
+        expect(result.error).toContain("missing main");
+      } finally {
+        delete process.env.npm_config_ignore_scripts;
+      }
+    }
+  });
+
+  it("fails when the user-level npmrc npm exported disables the lifecycle", async function() {
+    fs.writeFileSync(path.join(root, "package.json"), PKG);
+    const userConfig = path.join(root, "user-npmrc");
+    fs.writeFileSync(userConfig, "ignore-scripts=true\n");
+    process.env.npm_config_userconfig = userConfig;
+    try {
+      const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain("user-level .npmrc ignore-scripts=true");
+    } finally {
+      delete process.env.npm_config_userconfig;
+    }
+  });
+
+  it("fails when the user-level npmrc npm exported repins the registry", async function() {
+    fs.writeFileSync(path.join(root, "package.json"), PKG);
+    const userConfig = path.join(root, "user-npmrc");
+    fs.writeFileSync(userConfig, "registry=https://registry.example.internal/\n");
+    process.env.npm_config_userconfig = userConfig;
+    try {
+      const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain("user-level .npmrc registry=https://registry.example.internal/");
+    } finally {
+      delete process.env.npm_config_userconfig;
+    }
+  });
+
+  it("ignores a user-level config path that does not exist, as npm does", async function() {
+    fs.writeFileSync(path.join(root, "package.json"), PKG);
+    process.env.npm_config_userconfig = path.join(root, "no-such-npmrc");
+    try {
+      const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain("missing main");
+    } finally {
+      delete process.env.npm_config_userconfig;
     }
   });
 });

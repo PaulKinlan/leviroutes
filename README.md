@@ -319,6 +319,13 @@ npm test                  # the suite
 npm run verify:package    # static + runtime package gate (registry pinning, lifecycle contract, smoke tests)
 ```
 
+The gate reads the configuration layers that actually decide where a publish goes and whether the
+lifecycle runs: `package.json` `publishConfig`, the committed `.npmrc` (including `@scope:registry`
+keys), the `npm_config_registry` / `npm_config_ignore_scripts` environment, and - when npm exports
+their paths to the lifecycle - the user-level and global npmrc files. It cannot see the command
+line, so publish with a plain `npm publish`: passing `--registry=...` or `--ignore-scripts` bypasses
+every one of those checks.
+
 ### URLPattern investigation
 
 [`docs/urlpattern-investigation.md`](docs/urlpattern-investigation.md) assesses the URL Pattern
