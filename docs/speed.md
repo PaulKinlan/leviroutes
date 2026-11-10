@@ -17,7 +17,7 @@ Leviroutes defines two distinct gate tiers adhering to fleet rules R1, R2, R5, R
 | Tier | Script | Target / Budget | Executed By | Selection |
 |---|---|---|---|---|
 | **Fast Gate** | `tools/fast-gate.sh` | **≤ 60 s** (`CHECK_FAST_TIMEOUT=60`) | Implementer | Affected-only via `tools/suite-map.tsv` |
-| **Full Gate** | `tools/full-gate.sh` | **≤ 300 s** (`CHECK_TIMEOUT=300`) | Merger only | Full union: build verification, spec suite, tooling self-tests |
+| **Full Gate** | `tools/full-gate.sh` | **≤ 300 s** (`CHECK_TIMEOUT=300`) | Merger only | Full union: package verification (no build), spec suite, tooling self-tests |
 
 Both commands and contracts are registered in `tools/check.conf` and verified via `tools/check-cmd.sh`.
 
@@ -25,14 +25,20 @@ Both commands and contracts are registered in `tools/check.conf` and verified vi
 
 Under representative VM load (load average 1–3), the full gate executes three sequential stages:
 
-### Stage 1: Package & Build Verification (`node tools/verify-package.mjs`) — ~24 s
-- Static package.json and package-lock.json structure, script bodies, lifecycle hooks, and SRI integrity check (~0.05 s)
-- Installed dependency tree validation via `npm ls` with suppressed notifier/audit pings (~7.5 s)
-- Clean minification build via `npm run build` (`terser src/routes.js -o dist/routes.min.js`) (~12 s)
-- Exact compilation byte-match verification against terser output (~0.2 s)
-- File presence and non-empty assertions on disk (~0.01 s)
-- Runtime smoke test of `src/routes.js` and `dist/routes.min.js` (~0.05 s)
-- Package condition export resolution in child processes (default import, browser condition, functional execution) (~0.6 s)
+### Stage 1: Package Verification (`node tools/verify-package.mjs`) — ~0.7 s
+There is no build stage: the package ships `src/routes.js` and the browser, import and main entries all
+resolve to it (leviroutes-o71), so the gate verifies configuration and resolution instead of compiling
+and byte-matching an artifact (leviroutes-x8g).
+- Static package.json and package-lock.json structure, script bodies, lifecycle hooks, `files[]`
+  coverage of the shipped source, and SRI integrity check (~0.05 s)
+- Publish-endpoint pinning: `npm_config_registry`, `.npmrc` `registry=`/`ignore-scripts=` in npm's own
+  boolean coercion, so a publish cannot be redirected or the lifecycle silently disabled
+- Installed dependency tree validation via `npm ls` with suppressed notifier/audit pings
+- Package condition export resolution in child processes (default import, browser condition, functional
+  execution of a route through the resolved entry point)
+
+Measured 2026-11-10 on the fleet VM: 0.64 s wall for the whole stage. The pre-no-build stage spent ~12 s
+of it on `npm run build` plus a byte-match and a `dist/` smoke test, all of which are gone.
 
 ### Stage 2: Full Spec Suite (`npm test`) — ~40–45 s
 - 114 specs across 10 test suites (`spec/*.spec.mjs`, including `spec/verifypackage-lifecycle.spec.mjs` and `spec/verifypackage-registry.spec.mjs`)
@@ -44,7 +50,7 @@ Under representative VM load (load average 1–3), the full gate executes three 
 - **Section 2 (11 tests, ~1 s):** `tools/check.conf` validation, drift detection, and `--install` stamping.
 - **Section 3 (6 tests, ~10 s):** `tools/full-gate.sh` step execution and failure loud-reporting orchestration.
 - **Section 4 (23 tests, ~26 s):** End-to-end publish lifecycle verification:
-  - 17a / 17a2 (~23 s): Real positive full verification executed as a standalone CLI process (`node tools/verify-package.mjs`) verifying build artifact creation, minification byte-matching, runtime smoke tests, and package export resolution.
+  - 17a / 17a2: Real positive full verification executed as a standalone CLI process (`node tools/verify-package.mjs`) covering static configuration, export resolution and functional smoke through the resolved entry point — there is no build artifact to create or byte-match since leviroutes-o71.
   - 17b–17n (~3 s): 17 negative failure assertions batched into a single in-process Node runner, eliminating 20+ cold-start process invocations while preserving exact error message contracts; 17o / 17o2 add the in-sync dependency bump parity pair, 17p asserts the runner accounted for every Section 4 assertion, and 17q asserts a simulated runner exit 37 fails closed rather than rejecting zero checks.
 
 ## 3. History & Measured Optimizations
@@ -71,6 +77,6 @@ Under representative VM load (load average 1–3), the full gate executes three 
 ## 4. Timeout Budget Decision
 
 - **Fast Gate:** Budget is ≤ 60 s. Fast gate runs mapped suites in parallel (`JOBS=4`), consistently completing in ≤ 60 s (`CHECK_FAST_TIMEOUT=60`).
-- **Full Gate:** Median runtime is ~120 s.
-  - While individual subcomponents can complete faster on idle unloaded hardware, the combination of per-spec JSDOM isolation (40 s), full build verification (24 s), and comprehensive gate tooling self-tests (54 s) establishes a 120 s baseline on 2 vCPUs.
-  - `CHECK_TIMEOUT=300` in `tools/check.conf` is retained. A 300 s bound provides a healthy 2.5x safety margin against CPU contention and throttling on multi-tenant VMs during concurrent runs, eliminating false-positive exit 124 kills while remaining firmly bounded.
+- **Full Gate:** Median runtime is ~95 s.
+  - While individual subcomponents can complete faster on idle unloaded hardware, the combination of per-spec JSDOM isolation (~40 s), package verification (~1 s, no build) and comprehensive gate tooling self-tests (~54 s) establishes that baseline on 2 vCPUs.
+  - `CHECK_TIMEOUT=300` in `tools/check.conf` is retained. A 300 s bound provides a healthy 3x safety margin against CPU contention and throttling on multi-tenant VMs during concurrent runs, eliminating false-positive exit 124 kills while remaining firmly bounded.

@@ -1,5 +1,7 @@
 node_modules/
-dist/
+# No dist/: the package ships src/routes.js and there is no build step (leviroutes-o71, leviroutes-x8g).
+# tools/verify-package.mjs rejects a build script, build output in files[] and build output in the
+# published tree, so anything reappearing here is a defect inside the package.
 *.log
 .DS_Store
 coverage/

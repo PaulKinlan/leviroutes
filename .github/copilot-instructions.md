@@ -8,7 +8,9 @@ LeviRoutes is a lightweight JavaScript routing framework for HTML5 History API a
 ## Technology Stack
 - **Language**: JavaScript (ES Modules)
 - **Testing**: Jasmine 5.1.0
-- **Build**: Terser for minification
+- **Build**: None. `src/routes.js` is shipped directly as the browser, import and main entry point
+  (leviroutes-o71); `tools/verify-package.mjs` rejects a `build`/`build:min` script, build output in
+  `files[]`, and any `prepublishOnly` chain other than `npm test && npm run verify:package`.
 - **Environment**: Isomorphic / Universal (browser client routing and Node.js server request dispatch)
 
 ## Project Structure
@@ -23,14 +25,12 @@ tools/
   fast-gate.sh       # Fast gate runner (affected suites, <=60s)
   full-gate.sh       # Full gate runner (all suites, <=300s)
   suite-map.tsv      # Source-to-suite mapping for fast gate
-  verify-package.mjs # Prepublish package/artifact verification
+  verify-package.mjs # Prepublish package/verification gate (no build step)
 docs/
   speed.md           # Gate speed contracts and budgets
   urlpattern-investigation.md # URLPattern implementation findings
 examples/
   client/            # Example implementations
-dist/
-  routes.min.js      # Minified build output (generated)
 ```
 
 ## Coding Conventions
@@ -75,13 +75,14 @@ npm run test:full     # Run full verification gate (full-gate.sh)
 - Test files end with `.spec.mjs`
 - When adding new test files or modifying project files, keep `tools/suite-map.tsv` updated; `tools/fast-gate.sh` will fail if any changed file is unmapped. See `docs/speed.md` for gate contract details.
 
-### Building
+### Publishing (no build step)
 ```bash
-npm run build
+npm run prepublishOnly   # npm test && npm run verify:package
 ```
-- Creates minified version at `dist/routes.min.js`
-- Tests, package verification and build run automatically before publish (`prepublishOnly`)
-- Uses Terser for compression
+- The package ships `src/routes.js` and has no build: there is no `dist/`, no Terser and no minification
+  (leviroutes-o71). The browser condition in `package.json` resolves to the same reviewed source file.
+- `npm publish` runs exactly that chain, and `tools/verify-package.mjs` rejects any `prepublishOnly`
+  that adds, drops, reorders or masks a segment.
 
 ### Testing Locally
 Start a local web server to test examples:
@@ -172,7 +173,7 @@ describe("feature name", function() {
 - Keep commits focused and atomic
 - Test before committing
 - Update documentation in the same PR as code changes
-- Don't commit `node_modules/` or `dist/` (handled by .gitignore and build process)
+- Don't commit `node_modules/` (handled by .gitignore); there is no build output to commit (leviroutes-o71)
 
 ## Security Considerations
 - No external dependencies in production code

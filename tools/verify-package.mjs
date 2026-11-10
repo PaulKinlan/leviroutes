@@ -483,7 +483,8 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
       throw new Error(`Default import resolved to ${defaultResolvedPath}, expected ${expectedDefault}`);
     }
 
-    // Assert browser condition resolves to minified dist artifact
+    // Assert the browser condition resolves to the shipped source file (there is no build output:
+    // leviroutes-o71 / leviroutes-x8g)
     const browserUrl = execSync(
       'node --conditions=browser --input-type=module -e "console.log(import.meta.resolve(\'leviroutes\'))"',
       { cwd: root, encoding: 'utf8' }
