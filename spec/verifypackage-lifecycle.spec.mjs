@@ -43,6 +43,7 @@ describe("verify-package no-build lifecycle contract", function() {
       module: "./src/routes.js",
       browser: "./src/routes.js",
       exports: { ".": { browser: "./src/routes.js", import: "./src/routes.js" } },
+      files: ["src/", "README.md", "CHANGELOG.md", "LICENCE"],
       scripts: {
         test: "jasmine",
         "verify:package": "node tools/verify-package.mjs",
@@ -160,6 +161,74 @@ describe("verify-package no-build lifecycle contract", function() {
 
     // The denylist is per-hook, not a scripts allowlist: a benign extra script
     // must sail through to the next check (control's proving error).
+    expect(result.error).toContain("missing spec/support/jasmine.json");
+  });
+
+  // leviroutes-eew: presence-only entry-point checks let the o71 defect come back - a browser
+  // condition or files[] entry pointing at a gitignored dist/ artifact passed the gate. These
+  // cases bind every entry point to the same shipped source and constrain the published tree.
+  it("rejects a browser condition that points at a different artifact", async function() {
+    fixture({ browser: "./dist/routes.min.js" });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("browser resolves to dist/routes.min.js");
+    expect(result.error).toContain("main resolves to src/routes.js");
+  });
+
+  it("rejects an exports browser condition that points at a different artifact", async function() {
+    fixture({ exports: { ".": { browser: "./dist/routes.min.js", import: "./src/routes.js" } } });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('exports["."].browser resolves to dist/routes.min.js');
+  });
+
+  it("rejects a files[] entry that ships build output", async function() {
+    fixture({ files: ["src/", "dist/", "README.md", "LICENCE"] });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("files[] names build output (dist)");
+  });
+
+  it("rejects a files[] entry that ships a minified artifact under another directory", async function() {
+    fixture({ files: ["src/", "public/routes.min.js", "README.md"] });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("files[] names build output (public/routes.min.js)");
+  });
+
+  it("rejects a files[] list that does not cover the shipped source", async function() {
+    fixture({ files: ["README.md", "LICENCE"] });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("files[] does not include the shipped source src/routes.js");
+  });
+
+  it("rejects a package that states no published tree at all", async function() {
+    fixture({ files: undefined });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("files[] must list the published tree");
+  });
+
+  it("accepts a files[] entry naming the shipped source file directly", async function() {
+    fixture({ files: ["./src/routes.js", "README.md"] });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    // The publish-layout checks passed; the first failing check is the next one in line.
     expect(result.error).toContain("missing spec/support/jasmine.json");
   });
 });

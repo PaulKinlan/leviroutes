@@ -505,6 +505,9 @@ const pkg = {
   module: "./src/routes.js",
   browser: "./src/routes.js",
   exports: { ".": { browser: "./src/routes.js", import: "./src/routes.js" } },
+  // leviroutes-eew: the guard now binds every entry point to the same file and requires files[] to
+  // cover it with no build output, so the fixture states its published tree like the real package.
+  files: ["src/", "README.md", "CHANGELOG.md", "LICENCE"],
   scripts: {
     test: "jasmine",
     "verify:package": "node tools/verify-package.mjs",
