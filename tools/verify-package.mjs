@@ -291,6 +291,40 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
     }
   }
 
+  // leviroutes-e0f: pinning the publish endpoint is only half the job - every lockfile entry also
+  // records the URL its tarball comes from, and `npm ci` fetches that URL verbatim. A substituted host
+  // in `resolved` therefore installs different bytes than the registry pinned above, and the SRI check
+  // just passed only proves the integrity string is well formed, not that it describes bytes from the
+  // pinned host. Local workspace links are the one exception (they cannot be substituted remotely);
+  // anything else - another host, plain http, a git or ssh spec - is refused, because this package has
+  // no production dependencies and such a source is a supply-chain decision that must be made in the
+  // open rather than arrive as a lockfile edit.
+  const LOCAL_RESOLUTION = /^(?:file|link):/;
+  const resolvedOffenders = [];
+  const integrityOffenders = [];
+  for (const [pkgKey, pkgEntry] of Object.entries(lock.packages)) {
+    const resolved = pkgEntry && pkgEntry.resolved;
+    if (typeof resolved !== 'string' || resolved.trim() === '') continue;
+    if (LOCAL_RESOLUTION.test(resolved)) continue;
+    if (!resolved.startsWith(OFFICIAL_REGISTRY)) resolvedOffenders.push(`${pkgKey} -> ${resolved}`);
+    // leviroutes-6dub: host pinning bounds WHERE the bytes come from, but an entry with no integrity hash
+    // has nothing to check those bytes against - npm installs whatever the host returns, and the SRI loop
+    // above only validates a hash that is present. Stripped-integrity lockfile edits are the accidental
+    // half of supply-chain substitution, so a remote resolution now requires one. Local file:/link:
+    // resolutions legitimately carry none and are exempt.
+    if (!pkgEntry.integrity) integrityOffenders.push(pkgKey);
+  }
+  if (integrityOffenders.length > 0) {
+    const shown = integrityOffenders.slice(0, 3).join(', ');
+    const extra = integrityOffenders.length > 3 ? `, +${integrityOffenders.length - 3} more` : '';
+    return fail(`package-lock.json resolves packages without an integrity hash (${shown}${extra}); a remote tarball must be checked against a recorded hash`);
+  }
+  if (resolvedOffenders.length > 0) {
+    const shown = resolvedOffenders.slice(0, 3).join(', ');
+    const extra = resolvedOffenders.length > 3 ? `, +${resolvedOffenders.length - 3} more` : '';
+    return fail(`package-lock.json resolves packages from outside ${OFFICIAL_REGISTRY} (${shown}${extra}); the resolved URL is what npm ci fetches, so it must be the pinned registry`);
+  }
+
   // Validate underlying scripts invoked by the prepublish lifecycle
   const testBody = (pkg.scripts?.test || '').trim();
   if (testBody !== 'jasmine') {
@@ -407,6 +441,13 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
 
   // Check installed dependencies only after all static configuration checks. Negative
   // validation must not pay for npm startup, but a valid package still checks its tree.
+  // leviroutes-e0f: npm_config_audit=false is a decision, not an oversight. Dependency advisories are
+  // deliberately NOT part of this gate: it has to answer offline and deterministically at publish time
+  // (a registry or audit endpoint that is slow, rate-limited or down would turn a publish into a
+  // flake), the package has no production dependencies at all and two devDependencies, and advisories
+  // for those arrive from the nightly deps-supply-chain station, which tracks them as beads rather
+  // than as a blocking gate step. Recorded here because the alternative - an audit leg in
+  // prepublishOnly - would also have to survive the exact two-segment chain this guard enforces.
   const npmEnv = {
     ...process.env,
     npm_config_update_notifier: 'false',

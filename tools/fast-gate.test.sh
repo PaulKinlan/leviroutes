@@ -507,6 +507,23 @@ cp "$HERE/../src/routes.js" "$VP_FIXTURE/src/"
 cp "$HERE/../spec/support/jasmine.json" "$VP_FIXTURE/spec/support/"
 cp "$HERE/../package-lock.json" "$VP_FIXTURE/package-lock.json"
 ln -s "$HERE/../node_modules" "$VP_FIXTURE/node_modules"
+# leviroutes-d6p: 17d2 claims verify-package validates BEFORE it executes anything, but nothing in the
+# fixture could ever observe execution - the only thing that ever created the old 'pwned' file was
+# 'npm run build:min', and verify-package never runs a package script - so a validate-AFTER-execute
+# mutant left 17d/17d2 green. The fixture's entry module now writes a sentinel when it is imported:
+# the guard's execution phase imports the entry point (condition resolution and the functional smoke
+# in child processes, which inherit this environment), so a validator that runs after execution leaves
+# the file behind and moving a rejection below the execution phase becomes visible.
+cat >> "$VP_FIXTURE/src/routes.js" <<'SENTINEL'
+
+// leviroutes-d6p test sentinel: the self-test harness points VP_SENTINEL_FILE at a scratch path to
+// observe whether verify-package reached its execution phase before or after it validated this
+// fixture. Inert unless the variable is set, and only ever set inside the harness's mktemp dir.
+import __vpSentinelFs from "node:fs";
+if (typeof process !== "undefined" && process.env && process.env.VP_SENTINEL_FILE) {
+  __vpSentinelFs.writeFileSync(process.env.VP_SENTINEL_FILE, "executed");
+}
+SENTINEL
 
 # The fixture package.json is derived from the lockfile it copies (name, version and both
 # dependency maps) instead of a frozen snapshot of today's devDependencies. verify-package
@@ -566,6 +583,13 @@ import path from "node:path";
 const fixture = process.argv[1];
 const { verifyPackage } = await import(path.join(fixture, "tools/verify-package.mjs"));
 
+// leviroutes-d6p: the fixture entry module writes this path when verify-package imports it. Clearing
+// it before a rejected fixture and asserting it stays absent is what makes "validated before it
+// executed" an observable claim rather than a name; 17d3 proves the observation itself works.
+const ENTRY_SENTINEL = path.join(fixture, "entry-executed.sentinel");
+process.env.VP_SENTINEL_FILE = ENTRY_SENTINEL;
+const clearSentinel = () => { if (fs.existsSync(ENTRY_SENTINEL)) fs.unlinkSync(ENTRY_SENTINEL); };
+
 const pkgPath = path.join(fixture, "package.json");
 const lockPath = path.join(fixture, "package-lock.json");
 const basePkgContent = fs.readFileSync(pkgPath, "utf8");
@@ -609,13 +633,12 @@ function reset() {
   reset();
 }
 
-// 17d. a reintroduced build script is rejected BEFORE any execution (no side-effect file created)
+// 17d. a reintroduced build script is rejected BEFORE any execution (no entry-module side effect)
 {
-  const pwnedFile = path.join(fixture, "pwned");
-  if (fs.existsSync(pwnedFile)) fs.unlinkSync(pwnedFile);
+  clearSentinel();
   const p = JSON.parse(basePkgContent);
   p.scripts.build = "npm run build:min";
-  p.scripts["build:min"] = "touch pwned";
+  p.scripts["build:min"] = "echo would-build";
   fs.writeFileSync(pkgPath, JSON.stringify(p));
   const res = await verifyPackage(fixture, { exitOnError: false });
   if (!res.ok && res.error.includes("must not define build scripts")) {
@@ -623,12 +646,27 @@ function reset() {
   } else {
     emit("bad", "17d verify-package rejects a reintroduced build script", `got: ${JSON.stringify(res)}`);
   }
-  if (!fs.existsSync(pwnedFile)) {
-    emit("ok", "17d2 verify-package validates build scripts BEFORE command execution");
+  if (!fs.existsSync(ENTRY_SENTINEL)) {
+    emit("ok", "17d2 verify-package validates build scripts BEFORE it executes anything");
   } else {
-    emit("bad", "17d2 verify-package validates build scripts BEFORE command execution", "pwned file created");
-    fs.unlinkSync(pwnedFile);
+    emit("bad", "17d2 verify-package validates build scripts BEFORE it executes anything", "the entry point was imported before the rejection");
   }
+  clearSentinel();
+  reset();
+}
+
+// 17d3. positive control for 17d2: a fixture that passes verification must import the entry point, so
+// the sentinel appears. Without this, 17d2 could pass because the observation never fires at all.
+{
+  clearSentinel();
+  reset();
+  const res = await verifyPackage(fixture, { exitOnError: false });
+  if (res.ok === true && fs.existsSync(ENTRY_SENTINEL)) {
+    emit("ok", "17d3 a passing fixture imports the entry point, so 17d2 can observe execution");
+  } else {
+    emit("bad", "17d3 a passing fixture imports the entry point, so 17d2 can observe execution", `ok=${res.ok} sentinel=${fs.existsSync(ENTRY_SENTINEL)}`);
+  }
+  clearSentinel();
   reset();
 }
 
@@ -808,10 +846,10 @@ while IFS=$'\t' read -r status name detail; do
   fi
 done < "$RUNNER_OUT"
 
-if [ "$seen_tests" -eq 19 ]; then
-  ok "17p Section 4 accounted for all 19 assertions"
+if [ "$seen_tests" -eq 20 ]; then
+  ok "17p Section 4 accounted for all 20 assertions"
 else
-  bad "17p Section 4 expected 19 assertions" "only executed $seen_tests assertions"
+  bad "17p Section 4 expected 20 assertions" "only executed $seen_tests assertions"
 fi
 
 # 17q. simulated runner crash (exit 37) with zero checks is caught and fails loudly (leviroutes-zs1 repro)
