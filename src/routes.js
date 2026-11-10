@@ -36,14 +36,14 @@ const routes = function(options) {
   // maxHeaderSize, i.e. the bound a real server already applies to the request target.
   var MAX_URL_LENGTH = 16384;
   var MAX_VALUES_COUNT = 1024;
-  // leviroutes-j6sv: expandAtoms() materialises a fixed {n} into n atoms so two branches can be
-  // compared position by position, and nothing bounded n: '/:id((a{2,3}|a{100000000}){2})' is a
-  // 31-character pattern that pushed 2e8 atoms and died of heap OOM at registration (measured:
-  // 1e3 -> 8ms, 1e5 -> 25ms, 5e6 -> 601ms, 1e8 -> FATAL ERROR: JavaScript heap out of memory).
-  // The comparison only ever needs to align atoms inside a branch an author actually wrote, so
-  // above this many atoms the expansion abstains (returns null, the existing "cannot decide"
-  // signal) and branchesOverlap() falls through to its character probe instead of allocating.
-  var MAX_EXPANDED_ATOMS = 512;
+  // leviroutes-j6sv / leviroutes-4jis: the fixed-branch comparison used to materialise a fixed {n}
+  // into n atoms, so '/:id((a{2,3}|a{100000000}){2})' (31 characters) pushed 2e8 atoms and died of
+  // heap OOM at registration. Capping the expansion and abstaining was worse than the OOM: an
+  // abstention falls through to a character probe that cannot see two branches with equal languages
+  // and different text (a{600}b vs a{300}a{300}b), so '/:id((a{600}b|a{300}a{300}b)+)' registered and
+  // its regex backtracked exponentially. The comparison is now done on run-length encodings, which
+  // is exact at any count and allocates only one entry per maximal run, so this bounds the ENCODING
+  // (a pathological pattern with thousands of alternating runs) rather than the repeat counts.
 
   // Parse quantifier token at startIdx in pattern: returns { isRepetition, isNullable, isVariable, end } or null.
   // Repetition quantifiers (+, *, {n,m} where max > 1) can repeat multiple times.
@@ -254,8 +254,33 @@ const routes = function(options) {
     return false;
   };
 
-  var expandAtoms = function(b) {
-    var atoms = [];
+  // Marks a branch whose run-length encoding is too large to compare cheaply. Distinct from null,
+  // which means "this branch has no fixed length and the comparison cannot be made at all".
+  var EXPANSION_TOO_COMPLEX = { tooComplex: true };
+
+  // Parse a fixed branch into runs of identical atoms: [{ atom, count }] plus the total length,
+  // without materialising the atoms. Mirrors the old per-atom expansion exactly (including its
+  // treatment of a {min,max} quantifier on a group, which it never consumed as a quantifier), so
+  // every verdict is the one the materialising version reached, just without the allocation.
+  var MAX_EXPANDED_RUNS = 4096;
+  var expandToRuns = function(b) {
+    var runs = [];
+    var length = 0;
+    var appendRun = function(atom, count) {
+      if (count <= 0) return;
+      if (runs.length > 0 && runs[runs.length - 1].atom === atom) {
+        runs[runs.length - 1].count += count;
+      } else {
+        runs.push({ atom: atom, count: count });
+      }
+      length += count;
+    };
+    var absorb = function(inner) {
+      for (var r = 0; r < inner.runs.length; r++) {
+        appendRun(inner.runs[r].atom, inner.runs[r].count);
+      }
+    };
+
     var i = 0;
     while (i < b.length) {
       var c = b[i];
@@ -264,10 +289,9 @@ const routes = function(options) {
         atom = b.slice(i, i + 2);
         i += 2;
       } else if (c === "[") {
-        // leviroutes-4qix: same defect as branchLength - an unterminated class made
-        // close -1, so `i = close + 1` reset i to 0 and this loop never ended. Not
-        // reachable through the route validator today (it rejects the shape as an
-        // unclosed '(' first), but the helper must not depend on that.
+        // leviroutes-4qix: an unterminated class made close -1, so `i = close + 1` reset i to 0
+        // and the loop never ended. Not reachable through the route validator today (it rejects
+        // the shape as an unclosed '(' first), but the helper must not depend on that.
         var close = b.indexOf("]", i);
         if (close === -1) {
           atom = b[i];
@@ -291,8 +315,9 @@ const routes = function(options) {
         if (inner.indexOf("|") !== -1) {
           return null;
         }
-        var innerAtoms = expandAtoms(inner);
-        if (!innerAtoms) return null;
+        var innerRuns = expandToRuns(inner);
+        if (innerRuns === EXPANSION_TOO_COMPLEX) return EXPANSION_TOO_COMPLEX;
+        if (!innerRuns) return null;
         var count = 1;
         if (i < b.length && b[i] === "{") {
           var closeBrace = b.indexOf("}", i);
@@ -302,9 +327,9 @@ const routes = function(options) {
             i = closeBrace + 1;
           }
         }
-        if (count * innerAtoms.length > MAX_EXPANDED_ATOMS) return null;
         for (var rep = 0; rep < count; rep++) {
-          atoms.push.apply(atoms, innerAtoms);
+          absorb(innerRuns);
+          if (runs.length > MAX_EXPANDED_RUNS) return EXPANSION_TOO_COMPLEX;
         }
         continue;
       } else {
@@ -325,35 +350,65 @@ const routes = function(options) {
           i = closeBrace + 1;
         }
       }
-      if (atoms.length + count > MAX_EXPANDED_ATOMS) return null;
-      for (var rep = 0; rep < count; rep++) {
-        atoms.push(atom);
-      }
+      appendRun(atom, count);
+      if (runs.length > MAX_EXPANDED_RUNS) return EXPANSION_TOO_COMPLEX;
     }
-    return atoms;
+    return { runs: runs, length: length };
+  };
+
+  // The atom at a given index of an encoded branch (only used for the one-atom lookahead).
+  var atomAtIndex = function(encoded, index) {
+    var seen = 0;
+    for (var r = 0; r < encoded.runs.length; r++) {
+      seen += encoded.runs[r].count;
+      if (index < seen) return encoded.runs[r].atom;
+    }
+    return undefined;
   };
 
   var checkFixedBranches = function(b1, b2) {
-    var a1 = expandAtoms(b1);
-    var a2 = expandAtoms(b2);
-    if (!a1 || !a2) return null;
+    var e1 = expandToRuns(b1);
+    var e2 = expandToRuns(b2);
+    // leviroutes-4jis: an encoding we cannot compare is not permission to register. Abstaining
+    // made the caller's character probe decide, and that probe is blind to equal-language branches
+    // with different text (a{600}b vs a{300}a{300}b), turning a REJECT into an ACCEPT for a shape
+    // that backtracks exponentially. Answer "they can overlap" instead: the guard's only failure
+    // mode stays over-rejection of a >512-run pattern, never admission of an exponential one.
+    if (e1 === EXPANSION_TOO_COMPLEX || e2 === EXPANSION_TOO_COMPLEX) return true;
+    if (!e1 || !e2) return null;
 
-    var minLen = Math.min(a1.length, a2.length);
-    for (var k = 0; k < minLen; k++) {
-      if (!atomsOverlap(a1[k], a2[k])) {
+    var minLen = Math.min(e1.length, e2.length);
+    var pos = 0;
+    var i1 = 0;
+    var used1 = 0;
+    var i2 = 0;
+    var used2 = 0;
+    var overlapCache = Object.create(null);
+    var atomsOverlapCached = function(a1, a2) {
+      var key = a1 + "\u0000" + a2;
+      if (!(key in overlapCache)) overlapCache[key] = atomsOverlap(a1, a2);
+      return overlapCache[key];
+    };
+    while (pos < minLen) {
+      if (!atomsOverlapCached(e1.runs[i1].atom, e2.runs[i2].atom)) {
         return false;
       }
+      var step = Math.min(e1.runs[i1].count - used1, e2.runs[i2].count - used2, minLen - pos);
+      pos += step;
+      used1 += step;
+      used2 += step;
+      if (used1 === e1.runs[i1].count) { i1++; used1 = 0; }
+      if (used2 === e2.runs[i2].count) { i2++; used2 = 0; }
     }
 
-    if (a1.length === a2.length) {
+    if (e1.length === e2.length) {
       return true;
     }
 
-    var shortAtoms = a1.length < a2.length ? a1 : a2;
-    var longAtoms = a1.length < a2.length ? a2 : a1;
-    var nextExpectedInLong = longAtoms[shortAtoms.length];
+    var longer = e1.length > e2.length ? e1 : e2;
+    var nextExpectedInLong = atomAtIndex(longer, minLen);
 
-    if (atomsOverlap(a1[0], nextExpectedInLong) || atomsOverlap(a2[0], nextExpectedInLong)) {
+    if (atomsOverlapCached(e1.runs[0].atom, nextExpectedInLong) || atomsOverlapCached(e2.runs[0].atom, nextExpectedInLong)) {
       return true;
     }
 

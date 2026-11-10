@@ -784,4 +784,31 @@ describe("route parsing", function() {
     expanded.get("/x/:id((\\d{1,3}\\d{1,3}){4})", function(){});
     expect(expanded.getRoutes()[0].regex.regexp).toEqual(/^(?:\/x\/((\d{1,3}\d{1,3}){4}))$/);
   });
+
+  // leviroutes-4jis: capping the atom expansion and abstaining (returning null) from the fixed-branch
+  // comparison handed the decision to branchesOverlap's character probe, which is blind to two
+  // branches with the SAME language and different text - a{600}b vs a{300}a{300}b expands to identical
+  // atoms but no single-char repeat matches either branch, so the probe said "no overlap" and the
+  // route registered. The compiled regex then backtracked exponentially (n=16 blocks: 559ms, n=20:
+  // 14s). The comparison now runs on run-length encodings, so it is exact at any count and these
+  // shapes keep the verdict the pre-cap code reached.
+  it("should reject equal-language branches above the expansion bound (leviroutes-4jis)", function() {
+    [
+      "/:id((a{600}b|a{300}a{300}b)+)",
+      "/:id((a{600}b|a{300}a{300}b){2,})",
+      "/:id((a{500}b|a{250}a{250}b)+)",
+      "/:id((ab{600}|ab{300}ab{300})+)" // a multi-run branch: earlier runs still align
+    ].forEach(function(pattern) {
+      var r = new routes();
+      expect(function() {
+        r.get(pattern, function(){});
+      }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+    });
+
+    // Control: two branches that are genuinely disjoint keep registering, so the bound cannot be
+    // satisfied by rejecting every large fixed-count alternation.
+    var disjoint = new routes();
+    disjoint.get("/:id((a{600}b|a{600}c)+)", function(){});
+    expect(disjoint.getRoutes()[0].regex.regexp).toEqual(/^(?:\/((a{600}b|a{600}c)+))$/);
+  });
 });
