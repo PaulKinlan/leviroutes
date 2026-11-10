@@ -114,7 +114,18 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
       // there is NO whitespace in front of it, so 'false;comment' and 'false#c' both
       // run the lifecycle (measured on npm 11.19.1). Requiring whitespace flagged a
       // safe config (leviroutes-ago1).
-      const value = (m[3] === undefined ? '' : m[3]).replace(/[#;].*$/, '');
+      // leviroutes-8twg: that drop only happens for an UNQUOTED value. Once the value starts
+      // with a quote, npm keeps everything after '=' unless the closing quote is the last
+      // character, so 'ignore-scripts="false";comment' is the literal string '"false";comment'
+      // to npm (config get shows the quotes) and nopt therefore makes it TRUE - the lifecycle is
+      // skipped. Stripping the comment first turned it into '"false"' -> false -> gate green on a
+      // config that disables the whole publish chain (measured on npm 11.19.1 with a
+      // prepublishOnly marker and 'npm publish --dry-run': plain "false" RAN, "false";comment
+      // SKIPPED, and the same for single quotes and for "0"/"0b0" followed by a comment).
+      const rawValue = m[3] === undefined ? '' : m[3];
+      const trimmedValue = rawValue.trim();
+      const startsQuoted = trimmedValue.startsWith("'") || trimmedValue.startsWith('"');
+      const value = startsQuoted ? trimmedValue : rawValue.replace(/[#;].*$/, '');
       if (key === 'registry' && normalizeRegistry(value) !== OFFICIAL_REGISTRY) {
         offenders.push(`${label} ${scope}registry=${value}`);
       }

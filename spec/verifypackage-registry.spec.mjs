@@ -89,7 +89,14 @@ describe("verify-package registry pinning", function() {
       "1", "TRUE", "Yes", "on", "t", "y", "'on'", "\"true\"",
       "no", "No", "off", "OFF", "FALSE", "f", "F", "n", "N",
       "2", "0x1", "1.0", "tru e", "\"\"",
-      "", "ignore-scripts", "ignore-scripts  =  true"
+      "", "ignore-scripts", "ignore-scripts  =  true",
+      // leviroutes-8twg, measured on npm 11.19.1 with a prepublishOnly marker and
+      // 'npm publish --dry-run': npm keeps everything after '=' when the value starts with a
+      // quote and the closing quote is not the last character, so the comment stays part of the
+      // value ('"false";comment' is not the string 'false' to nopt) and the lifecycle is
+      // SKIPPED. Dropping the comment before the boolean check made these gate-green.
+      "\"false\";comment", "'false';comment", "\"0\";comment", "\"0b0\";x",
+      "\"false\" # x", "\"false\" ;x"
     ];
     for (const spelling of bypasses) {
       fs.writeFileSync(path.join(root, "package.json"), PKG);
@@ -113,9 +120,13 @@ describe("verify-package registry pinning", function() {
     // comment even with no whitespace in front of it - so '0b0', '0o0' and
     // 'false;comment' keep the lifecycle enabled on npm 11.19.1 and must not be
     // rejected. Measured with a prepublishOnly marker script and 'npm publish --dry-run'.
+    // leviroutes-8twg also measured the plain quoted forms: with the closing quote as the last
+    // character npm DOES unquote ('npm config get' prints it without quotes), so "false", 'false',
+    // "0" and "0b0" all run the lifecycle and must stay accepted. Only a quoted value followed by
+    // a comment is truthy (the cases in the reject spec above).
     for (const spelling of [
-      "false", "0", "0.0", "00", "\"false\"", "null", "false # keep scripts",
-      "0b0", "0B0", "0o0", "0O0", "0x0", "'0b0'", "\"0b0\"",
+      "false", "0", "0.0", "00", "\"false\"", "'false'", "null", "false # keep scripts",
+      "0b0", "0B0", "0o0", "0O0", "0x0", "'0b0'", "\"0b0\"", "\"0\"",
       "false;comment", "false#comment", "false ;comment"
     ]) {
       fs.writeFileSync(path.join(root, "package.json"), PKG);
