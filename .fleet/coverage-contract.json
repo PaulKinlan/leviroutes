@@ -1,4 +1,7 @@
 {
+  ".gitignore": [
+    "spec/repohygiene.spec.mjs"
+  ],
   "package-lock.json": [
     "spec/fixtureisolation.spec.mjs",
     "spec/middleware.spec.mjs",

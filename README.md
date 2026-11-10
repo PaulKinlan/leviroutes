@@ -326,6 +326,12 @@ their paths to the lifecycle - the user-level and global npmrc files. It cannot 
 line, so publish with a plain `npm publish`: passing `--registry=...` or `--ignore-scripts` bypasses
 every one of those checks.
 
+One limit is structural rather than a missing check: the gate runs from `prepublishOnly`, so a
+committed `.npmrc` containing `ignore-scripts=true` would skip the gate that is supposed to refuse it
+(`leviroutes-f9n`). `.npmrc` is therefore gitignored, and `spec/repohygiene.spec.mjs` fails the test
+suites - which the fleet's gates run directly, outside npm's lifecycle - if the tree ever carries such
+a file, if it no longer passes its own gate, or if `.npmrc` stops being ignored.
+
 ### URLPattern investigation
 
 [`docs/urlpattern-investigation.md`](https://github.com/PaulKinlan/leviroutes/blob/master/docs/urlpattern-investigation.md) assesses the URL Pattern
