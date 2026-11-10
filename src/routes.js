@@ -36,6 +36,14 @@ const routes = function(options) {
   // maxHeaderSize, i.e. the bound a real server already applies to the request target.
   var MAX_URL_LENGTH = 16384;
   var MAX_VALUES_COUNT = 1024;
+  // leviroutes-j6sv: expandAtoms() materialises a fixed {n} into n atoms so two branches can be
+  // compared position by position, and nothing bounded n: '/:id((a{2,3}|a{100000000}){2})' is a
+  // 31-character pattern that pushed 2e8 atoms and died of heap OOM at registration (measured:
+  // 1e3 -> 8ms, 1e5 -> 25ms, 5e6 -> 601ms, 1e8 -> FATAL ERROR: JavaScript heap out of memory).
+  // The comparison only ever needs to align atoms inside a branch an author actually wrote, so
+  // above this many atoms the expansion abstains (returns null, the existing "cannot decide"
+  // signal) and branchesOverlap() falls through to its character probe instead of allocating.
+  var MAX_EXPANDED_ATOMS = 512;
 
   // Parse quantifier token at startIdx in pattern: returns { isRepetition, isNullable, isVariable, end } or null.
   // Repetition quantifiers (+, *, {n,m} where max > 1) can repeat multiple times.
@@ -174,8 +182,12 @@ const routes = function(options) {
       if (c === "\\") {
         i += 2;
       } else if (c === "[") {
+        // leviroutes-4qix: this parser is handed branch text by the guard, so it must
+        // terminate on every input it can receive. `close` is -1 for an unterminated
+        // class and `close + 1` then rewinds i to 0, looping forever; step over the
+        // bracket and treat the rest as literals instead.
         var close = b.indexOf("]", i);
-        i = close + 1;
+        i = close === -1 ? i + 1 : close + 1;
       } else if (c === "(") {
         if (b.slice(i, i + 3) === "(?:") i += 3;
         else i += 1;
@@ -204,17 +216,25 @@ const routes = function(options) {
           atomVar = true;
           i++;
         } else if (b[i] === "{") {
+          // leviroutes-4qix: the same rewind - an unmatched '{' made closeBrace -1 and
+          // `i = closeBrace + 1` reset i to 0, so registering a route with one
+          // unclosed brace hung the process with no error. Only skip to the closer when
+          // there is one; otherwise consume the brace as a literal.
           var closeBrace = b.indexOf("}", i);
-          var m = /^\{(\d+)(?:,(\d*))?\}/.exec(b.slice(i, closeBrace + 1));
-          if (m) {
-            var min = parseInt(m[1], 10);
-            var max = m[2] === undefined ? min : (m[2] === "" ? Infinity : parseInt(m[2], 10));
-            if (max !== min) {
-              atomVar = true;
+          if (closeBrace === -1) {
+            i++;
+          } else {
+            var m = /^\{(\d+)(?:,(\d*))?\}/.exec(b.slice(i, closeBrace + 1));
+            if (m) {
+              var min = parseInt(m[1], 10);
+              var max = m[2] === undefined ? min : (m[2] === "" ? Infinity : parseInt(m[2], 10));
+              if (max !== min) {
+                atomVar = true;
+              }
+              atomLen = atomLen * min;
             }
-            atomLen = atomLen * min;
+            i = closeBrace + 1;
           }
-          i = closeBrace + 1;
         }
       }
 
@@ -244,9 +264,18 @@ const routes = function(options) {
         atom = b.slice(i, i + 2);
         i += 2;
       } else if (c === "[") {
+        // leviroutes-4qix: same defect as branchLength - an unterminated class made
+        // close -1, so `i = close + 1` reset i to 0 and this loop never ended. Not
+        // reachable through the route validator today (it rejects the shape as an
+        // unclosed '(' first), but the helper must not depend on that.
         var close = b.indexOf("]", i);
-        atom = b.slice(i, close + 1);
-        i = close + 1;
+        if (close === -1) {
+          atom = b[i];
+          i++;
+        } else {
+          atom = b.slice(i, close + 1);
+          i = close + 1;
+        }
       } else if (c === "(") {
         if (b.slice(i, i + 3) === "(?:") i += 3;
         else i += 1;
@@ -273,6 +302,7 @@ const routes = function(options) {
             i = closeBrace + 1;
           }
         }
+        if (count * innerAtoms.length > MAX_EXPANDED_ATOMS) return null;
         for (var rep = 0; rep < count; rep++) {
           atoms.push.apply(atoms, innerAtoms);
         }
@@ -295,6 +325,7 @@ const routes = function(options) {
           i = closeBrace + 1;
         }
       }
+      if (atoms.length + count > MAX_EXPANDED_ATOMS) return null;
       for (var rep = 0; rep < count; rep++) {
         atoms.push(atom);
       }

@@ -13,15 +13,22 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { verifyPackage } from '../tools/verify-package.mjs';
+import { isolateNpmEnv } from './helpers/npm-env-helper.mjs';
 
 describe("verify-package no-build lifecycle contract", function() {
   var root;
+  var restoreNpmEnv;
 
   beforeEach(function() {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "vp-lifecycle-"));
+    // leviroutes-grg4: the guard also reads npm's exported config paths now, so clear the
+    // machine's npm environment to keep each verdict a function of the fixture alone.
+    restoreNpmEnv = isolateNpmEnv();
   });
 
   afterEach(function() {
+    if (restoreNpmEnv) restoreNpmEnv();
+    restoreNpmEnv = null;
     if (root) fs.rmSync(root, { recursive: true, force: true });
     root = null;
   });
