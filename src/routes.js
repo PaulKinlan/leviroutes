@@ -349,6 +349,13 @@ const routes = function(options) {
         // With two or more runs in the inner group the reps cannot all merge (adjacent runs in an
         // encoding never share an atom, so each copy pushes at least one new run) and runs.length
         // hits MAX_EXPANDED_RUNS within a bounded number of iterations.
+        // leviroutes-p2dx: an EMPTY inner group ('()', '(?:)') encodes as zero runs, which neither
+        // path above covers: absorb() appends nothing, runs.length never changes, so the loop below
+        // would run the full count for no effect (1e9 iterations for '(){999999999}'). The helper
+        // must not depend on the surface analyser rejecting that shape first - the same standard as
+        // the unterminated-class fix above - so zero runs is a no-op here, and the invariant is now
+        // stated for every run count: 0 -> skip, 1 -> arithmetic, >=2 -> bounded loop.
+        if (innerRuns.runs.length === 0) continue;
         for (var rep = 0; rep < count; rep++) {
           absorb(innerRuns);
           if (runs.length > MAX_EXPANDED_RUNS) return EXPANSION_TOO_COMPLEX;

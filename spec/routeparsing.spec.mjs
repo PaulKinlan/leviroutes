@@ -827,7 +827,15 @@ describe("route parsing", function() {
     [
       "/:id((a{600}b|(a){999999999}b)+)",
       "/:id((a{600}b|(a{2}){999999999}b)+)",
-      "/:id(([ab]{600}c|([ab]){999999999}c)+)"
+      "/:id(([ab]{600}c|([ab]){999999999}c)+)",
+      // leviroutes-p2dx: an EMPTY inner group encodes as zero runs, which the single-run arithmetic
+      // path does not cover - it must not reach the count-times loop either. These are rejected by
+      // the surface analyser before the run-length comparison is consulted, so this pins the
+      // user-visible property (fast, unchanged rejection) while the helper-level invariant lives in
+      // the comment at src/routes.js:349-364 (the helper is module-internal and cannot be called
+      // from a spec).
+      "/:id((a{600}b|(){999999999}b)+)",
+      "/:id((){999999999})"
     ].forEach(function(pattern) {
       var r = new routes();
       expect(function() {
