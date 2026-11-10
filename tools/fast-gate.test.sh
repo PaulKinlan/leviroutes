@@ -23,6 +23,14 @@ export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 # each test run starts cold (leviroutes-43f).
 export XDG_CACHE_HOME="$ROOT/cache"
 mkdir -p "$XDG_CACHE_HOME"
+# leviroutes-4oa: clear a compile cache inherited from the caller, too. tools/full-gate.sh exports
+# NODE_COMPILE_CACHE before it runs this suite, and tools/fast-gate.sh only creates the cache and
+# fails open on it when the variable is UNSET - so inheriting it skipped that whole block: assertion
+# 1l passed without ever reaching the fail-open path it exists to measure, and suites wrote their
+# cache files into the caller's directory instead of the hermetic root above. The value is captured
+# first so 1m can prove the clear happened rather than assume it (mutation of this line must fail).
+INHERITED_NODE_COMPILE_CACHE="${NODE_COMPILE_CACHE:-}"
+unset NODE_COMPILE_CACHE
 mkdir -p "$ROOT/repo"
 git -C "$ROOT/repo" init -q
 cp -r "$HERE" "$ROOT/repo/tools"
@@ -125,6 +133,19 @@ out=$(run_fast_gate_jobs 1 XDG_CACHE_HOME_IS_FILE --changed spec/middleware.spec
 rc=$?
 has "$out" "fast-gate: PASS (1 suite(s), 1 changed file(s))" "1l unwritable compile-cache location fails open"
 [ "$rc" = 0 ] && ok "1l2 fail-open exits 0" || bad "1l2 expected exit 0" "got $rc"
+
+# 1m. The inherited compile cache is gone before any suite runs (leviroutes-4oa). Under
+# tools/full-gate.sh the variable always arrives set, so this is the assertion that keeps 1l
+# honest there; standalone it records that there was nothing to clear.
+if [ -n "$INHERITED_NODE_COMPILE_CACHE" ]; then
+  if [ -z "${NODE_COMPILE_CACHE:-}" ]; then
+    ok "1m caller's NODE_COMPILE_CACHE ($INHERITED_NODE_COMPILE_CACHE) cleared before any suite runs"
+  else
+    bad "1m caller's NODE_COMPILE_CACHE cleared before any suite runs" "still set to $NODE_COMPILE_CACHE"
+  fi
+else
+  ok "1m no inherited NODE_COMPILE_CACHE (run under tools/full-gate.sh to exercise the clear)"
+fi
 
 # 2. Unmapped changed file fails loudly
 out=$(run --changed src/unknown.js)

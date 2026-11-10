@@ -811,4 +811,74 @@ describe("route parsing", function() {
     disjoint.get("/:id((a{600}b|a{600}c)+)", function(){});
     expect(disjoint.getRoutes()[0].regex.regexp).toEqual(/^(?:\/((a{600}b|a{600}c)+))$/);
   });
+
+  // leviroutes-23db: the run-length rework replaced the old 'count * innerAtoms > MAX_EXPANDED_ATOMS'
+  // pre-check with an early exit inside the repetition loop, but that exit watched runs.length - and a
+  // group whose inner encoding is a SINGLE run merges back into that run on every repetition, so
+  // runs.length stayed at 1 and the loop ran the full count. '/:id((a{600}b|(a){999999999}b)+)' (30
+  // characters) blocked the event loop for 11.9s; '{99999999999}' extrapolated to ~23 minutes. That
+  // is the same unbounded-CPU-at-registration class as j6sv, reached through a different branch.
+  // Repeating one run is arithmetic, not iteration, so it is O(1) now - and past 2^53 the product is
+  // refused as too complex rather than rounded into a length comparison. The verdicts below are the
+  // ones the pre-change analysis reached, so this is a bound on the guard's own work, not a change to
+  // what it accepts.
+  it("should not iterate a single-run group's repeat count times while analysing a custom group (leviroutes-23db)", function() {
+    var started = Date.now();
+    [
+      "/:id((a{600}b|(a){999999999}b)+)",
+      "/:id((a{600}b|(a{2}){999999999}b)+)",
+      "/:id(([ab]{600}c|([ab]){999999999}c)+)"
+    ].forEach(function(pattern) {
+      var r = new routes();
+      expect(function() {
+        r.get(pattern, function(){});
+      }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+    });
+    // A quantifier long enough that count * innerCount leaves the safe-integer range: counting it out
+    // would take decades, and multiplying it would compare a rounded length. The count bound is not a
+    // new accept/reject rule (these shapes have no repeated alternation, so the nested-quantifier rule
+    // never fires and they keep the verdict every other bounded group repeat gets); what changed is
+    // that the analysis answers at all.
+    [
+      "/:id((a){9999999999999999})",
+      "/:id(((a){999999999}){999999999})"
+    ].forEach(function(pattern) {
+      var r = new routes();
+      expect(function() {
+        r.get(pattern, function(){});
+      }).not.toThrow();
+    });
+    // 11.9s before the change, ~0ms after it; the bound is two orders of magnitude clear of the
+    // observed cost so a slow machine cannot fail it, and it still catches a return to counting.
+    expect(Date.now() - started).toBeLessThan(2000);
+
+    // Verdict preservation: single-run group repeats that register keep registering, at counts far
+    // above and far below the ones the pathological shapes use.
+    [
+      "/x/:id((a){3}b)",
+      "/x/:id((a){0})",
+      "/x/:id((\\d){2})",
+      "/x/:id((a{2}){3})",
+      "/:id((a){3}b|aaab)",
+      "/:id((a){5000})",
+      "/:id((ab){999999999})" // a multi-run inner group stays on the looping path
+    ].forEach(function(pattern) {
+      var r = new routes();
+      expect(function() {
+        r.get(pattern, function(){});
+      }).not.toThrow();
+    });
+
+    // ...and a multi-run inner group takes the looping path, which still stops at the expansion bound
+    // (and keeps its verdict) rather than being counted out.
+    [
+      "/:id(((ab){999999999})+)",
+      "/:id(((ab){5000})+)"
+    ].forEach(function(pattern) {
+      var r = new routes();
+      expect(function() {
+        r.get(pattern, function(){});
+      }).not.toThrow();
+    });
+  });
 });
