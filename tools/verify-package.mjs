@@ -165,11 +165,49 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
       return fail(`${entry.field} resolves to ${entry.target} but main resolves to ${primaryTarget}; every entry point must load the same shipped source rather than a substituted artifact`);
     }
   }
+  // leviroutes-qubh: binding only the five required fields left other ways into a substituted
+  // artifact - exports["."].default/.require, any export subpath, and the unpkg/jsdelivr fields
+  // that CDNs read. Walk the whole exports tree (strings and arrays) and those two fields.
+  const extraEntryPoints = [];
+  const collectExportTargets = (node, label) => {
+    if (typeof node === 'string') {
+      extraEntryPoints.push({ field: label, target: node });
+    } else if (Array.isArray(node)) {
+      node.forEach((child, index) => collectExportTargets(child, `${label}[${index}]`));
+    } else if (node && typeof node === 'object') {
+      for (const [key, value] of Object.entries(node)) collectExportTargets(value, `${label}[${JSON.stringify(key)}]`);
+    }
+  };
+  if (pkg.exports !== undefined) collectExportTargets(pkg.exports, 'exports');
+  for (const field of ['unpkg', 'jsdelivr']) {
+    if (pkg[field] !== undefined) extraEntryPoints.push({ field: field, target: pkg[field] });
+  }
+  for (const entry of extraEntryPoints) {
+    const target = normalizeTarget(entry.target);
+    if (target !== primaryTarget) {
+      return fail(`${entry.field} resolves to ${target} but main resolves to ${primaryTarget}; every entry point must load the same shipped source rather than a substituted artifact`);
+    }
+  }
   // The published tree has to be stated, cover that source, and exclude build output: npm ships
   // every path under files[], so a stale 'dist/' entry alone re-publishes an unreviewed artifact.
   const BUILD_OUTPUT_PATTERN = /(^|\/)(dist|build|out|bundle|bundles)(\/|$)|\.min\.js$/i;
   if (!Array.isArray(pkg.files) || pkg.files.length === 0) {
     return fail('package.json files[] must list the published tree so the gate can verify it covers the shipped source and carries no build output');
+  }
+  const nonStringFiles = pkg.files.filter((entry) => typeof entry !== 'string' || entry.trim() === '');
+  if (nonStringFiles.length > 0) {
+    return fail('package.json files[] must contain non-empty path strings');
+  }
+  // leviroutes-j8er: a literal check cannot bound what a glob ships ('**/*' includes dist/, measured
+  // with npm pack --dry-run) and a negation can drop the shipped source ('!src/routes.js'), so the
+  // published tree has to be stated literally rather than pattern-matched.
+  const negatedFiles = pkg.files.filter((entry) => entry.trim().startsWith('!'));
+  if (negatedFiles.length > 0) {
+    return fail(`package.json files[] uses a negation (${negatedFiles.join(', ')}), which can drop the shipped source; state the published paths literally`);
+  }
+  const globbedFiles = pkg.files.filter((entry) => /[*?[\]{}]/.test(entry));
+  if (globbedFiles.length > 0) {
+    return fail(`package.json files[] uses a glob (${globbedFiles.join(', ')}), which can pull in build output the gate cannot see; state the published paths literally`);
   }
   const filesEntries = pkg.files.map(normalizeTarget);
   const buildOutputs = filesEntries.filter((entry) => BUILD_OUTPUT_PATTERN.test(entry));

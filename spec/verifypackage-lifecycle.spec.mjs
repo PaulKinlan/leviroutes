@@ -231,4 +231,81 @@ describe("verify-package no-build lifecycle contract", function() {
     // The publish-layout checks passed; the first failing check is the next one in line.
     expect(result.error).toContain("missing spec/support/jasmine.json");
   });
+
+  // leviroutes-qubh: the five required fields were the only ones bound, so a dist artifact could
+  // still be reached through exports["."].default / .require, an export subpath, or the CDN fields.
+  it("rejects an exports default/require condition that points at another artifact", async function() {
+    fixture({ exports: {
+      ".": {
+        browser: "./src/routes.js",
+        import: "./src/routes.js",
+        default: "./dist/routes.min.js",
+        require: "./dist/routes.min.js"
+      }
+    } });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('exports["."]["default"] resolves to dist/routes.min.js');
+  });
+
+  it("rejects an export subpath that points at another artifact", async function() {
+    fixture({ exports: {
+      ".": { browser: "./src/routes.js", import: "./src/routes.js" },
+      "./min": "./dist/routes.min.js"
+    } });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('exports["./min"] resolves to dist/routes.min.js');
+  });
+
+  it("rejects unpkg and jsdelivr fields that point at another artifact", async function() {
+    for (const field of ["unpkg", "jsdelivr"]) {
+      fixture({ [field]: "./dist/routes.min.js" });
+
+      const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain(`${field} resolves to dist/routes.min.js`);
+    }
+  });
+
+  it("accepts extra export conditions that point at the shipped source", async function() {
+    fixture({ exports: {
+      ".": {
+        browser: "./src/routes.js",
+        import: "./src/routes.js",
+        default: "./src/routes.js",
+        require: "./src/routes.js"
+      }
+    } });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("missing spec/support/jasmine.json");
+  });
+
+  // leviroutes-j8er: a literal check cannot bound what a glob ships, and a negation can drop the
+  // shipped source, so files[] has to state the published paths literally.
+  it("rejects a glob in files[]", async function() {
+    fixture({ files: ["src/", "**/*"] });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("files[] uses a glob (**/*)");
+  });
+
+  it("rejects a negation in files[]", async function() {
+    fixture({ files: ["src/", "!src/routes.js", "README.md"] });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("files[] uses a negation (!src/routes.js)");
+  });
 });
