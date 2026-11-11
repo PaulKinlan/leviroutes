@@ -299,12 +299,20 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
   // anything else - another host, plain http, a git or ssh spec - is refused, because this package has
   // no production dependencies and such a source is a supply-chain decision that must be made in the
   // open rather than arrive as a lockfile edit.
+  // leviroutes-m5ly: an entry with no resolved URL at all passes the host-pin loop and the integrity
+  // check if resolved is missing. Every remote package must specify a resolved URL.
   const LOCAL_RESOLUTION = /^(?:file|link):/;
   const resolvedOffenders = [];
   const integrityOffenders = [];
+  const missingResolvedOffenders = [];
   for (const [pkgKey, pkgEntry] of Object.entries(lock.packages)) {
+    if (pkgKey === '') continue;
+    if (pkgEntry && pkgEntry.link) continue;
     const resolved = pkgEntry && pkgEntry.resolved;
-    if (typeof resolved !== 'string' || resolved.trim() === '') continue;
+    if (typeof resolved !== 'string' || resolved.trim() === '') {
+      missingResolvedOffenders.push(pkgKey);
+      continue;
+    }
     if (LOCAL_RESOLUTION.test(resolved)) continue;
     if (!resolved.startsWith(OFFICIAL_REGISTRY)) resolvedOffenders.push(`${pkgKey} -> ${resolved}`);
     // leviroutes-6dub: host pinning bounds WHERE the bytes come from, but an entry with no integrity hash
@@ -313,6 +321,11 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
     // half of supply-chain substitution, so a remote resolution now requires one. Local file:/link:
     // resolutions legitimately carry none and are exempt.
     if (!pkgEntry.integrity) integrityOffenders.push(pkgKey);
+  }
+  if (missingResolvedOffenders.length > 0) {
+    const shown = missingResolvedOffenders.slice(0, 3).join(', ');
+    const extra = missingResolvedOffenders.length > 3 ? `, +${missingResolvedOffenders.length - 3} more` : '';
+    return fail(`package-lock.json resolves packages without a resolved URL (${shown}${extra}); every remote dependency must specify its resolution source`);
   }
   if (integrityOffenders.length > 0) {
     const shown = integrityOffenders.slice(0, 3).join(', ');
