@@ -20,4 +20,26 @@ describe("route management", function() {
     r.get("/", function() { });
     expect(r.getRoutes().length).toEqual(2);
   });
+
+  it("should return a defensive copy so array mutations do not affect internal routes", function() {
+    r.get("/original", function() { });
+    var externalRoutes = r.getRoutes();
+    expect(externalRoutes.length).toEqual(1);
+
+    // Mutate the returned array by pushing an unvalidated route
+    var fired = false;
+    externalRoutes.push({
+      method: "get",
+      regex: { regexp: /^\/injected$/ },
+      callback: function() { fired = true; }
+    });
+
+    expect(r.getRoutes().length).toEqual(1);
+    expect(r.test("/injected")).toBeFalsy();
+    expect(fired).toBe(false);
+
+    // Mutating length or clearing the returned array does not affect router
+    externalRoutes.length = 0;
+    expect(r.getRoutes().length).toEqual(1);
+  });
 });

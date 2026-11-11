@@ -1710,7 +1710,7 @@ const routes = function(options) {
   };
 
   this.getRoutes = function() {
-    return _routes;
+    return _routes.slice();
   };
 
   var attach = function() {
