@@ -1710,7 +1710,17 @@ const routes = function(options) {
   };
 
   this.getRoutes = function() {
-    return _routes;
+    return _routes.map(function(r) {
+      return {
+        method: r.method,
+        callback: r.callback,
+        regex: r.regex ? {
+          groups: r.regex.groups ? Object.assign({}, r.regex.groups) : r.regex.groups,
+          regexp: r.regex.regexp ? new RegExp(r.regex.regexp.source, r.regex.regexp.flags) : null,
+          pattern: r.regex.pattern
+        } : r.regex
+      };
+    });
   };
 
   var attach = function() {
