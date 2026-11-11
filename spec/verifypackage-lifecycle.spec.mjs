@@ -402,4 +402,47 @@ describe("verify-package no-build lifecycle contract", function() {
     // Local entries are exempt from the integrity requirement; the control's failure is unrelated.
     expect(result.error).toContain("missing spec/support/jasmine.json");
   });
+
+  // leviroutes-m5ly: a remote package entry with no resolved URL at all passes the host-pin loop
+  // and the integrity check if resolved is missing. Remote dependencies must have a resolved URL.
+  it("rejects a remote lockfile entry with no resolved field", async function() {
+    fixture({}, {
+      "node_modules/a": {
+        version: "1.0.0",
+        integrity: SRI
+      }
+    });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("resolves packages without a resolved URL (node_modules/a)");
+  });
+
+  it("rejects a remote lockfile entry with neither resolved nor integrity", async function() {
+    fixture({}, {
+      "node_modules/a": {
+        version: "1.0.0"
+      }
+    });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("resolves packages without a resolved URL (node_modules/a)");
+  });
+
+  it("still accepts a linked workspace entry with no resolved field", async function() {
+    fixture({}, {
+      "node_modules/linked-workspace": {
+        version: "1.0.0",
+        link: true
+      }
+    });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("missing spec/support/jasmine.json");
+  });
 });
