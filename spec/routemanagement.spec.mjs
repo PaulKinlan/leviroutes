@@ -35,26 +35,35 @@ describe("route management", function() {
     });
 
     expect(r.getRoutes().length).toEqual(1);
-    expect(r.test("/injected")).toBeFalsy();
+    expect(r.dispatch("/injected")).toBe(false);
     expect(fired).toBe(false);
 
     // Mutating length or clearing the returned array does not affect router
     externalRoutes.length = 0;
     expect(r.getRoutes().length).toEqual(1);
 
-    // Mutating regex or callback on returned route entries does not affect internal routes
+    // Mutating regex property assignment on returned route entries does not affect internal routes
     var routeEntries = r.getRoutes();
     routeEntries[0].regex.regexp = /.*/;
-    expect(r.test("/completely/different/path")).toBeFalsy();
+    expect(r.dispatch("/completely/different/path")).toBe(false);
+
+    // In-place RegExp.prototype.compile() or flag/lastIndex mutation on returned matcher does not affect router
+    var matcherEntries = r.getRoutes();
+    if (matcherEntries[0].regex.regexp && typeof matcherEntries[0].regex.regexp.compile === "function") {
+      matcherEntries[0].regex.regexp.compile(".*");
+      expect(r.dispatch("/completely/different/path")).toBe(false);
+      matcherEntries[0].regex.regexp.compile("^\\/original$", "g");
+      expect(r.dispatch("/original")).toBe(true);
+      expect(r.dispatch("/original")).toBe(true);
+    }
 
     var hijackedCalled = false;
-    routeEntries[0].callback = function() { hijackedCalled = true; };
     var originalRan = false;
     r = new routes();
     r.get("/original", function() { originalRan = true; });
     var entries = r.getRoutes();
     entries[0].callback = function() { hijackedCalled = true; };
-    r.test("/original");
+    r.dispatch("/original");
     expect(originalRan).toBe(true);
     expect(hijackedCalled).toBe(false);
   });

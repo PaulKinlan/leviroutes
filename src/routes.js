@@ -1716,7 +1716,7 @@ const routes = function(options) {
         callback: r.callback,
         regex: r.regex ? {
           groups: r.regex.groups ? Object.assign({}, r.regex.groups) : r.regex.groups,
-          regexp: r.regex.regexp,
+          regexp: r.regex.regexp ? new RegExp(r.regex.regexp.source, r.regex.regexp.flags) : null,
           pattern: r.regex.pattern
         } : r.regex
       };
