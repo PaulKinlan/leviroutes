@@ -87,17 +87,23 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
   }
   // leviroutes-teba: the gate pinned publishConfig.registry and left every other key
   // unexamined, so an unknown key arrived as a quiet package.json edit and passed green.
-  // npm itself only reads registry/access/tag here, but publish tooling that honours more
-  // (pnpm and Yarn both implement publishConfig.directory, which ships a DIFFERENT directory
-  // than the reviewed tree) would redirect the published bytes while every path assertion in
-  // this gate still passes - they all resolve against the repository root, not against a
-  // relocated publish root. Fail closed on any key outside the allowlist: a new publishConfig
-  // key is added deliberately, with its semantics reviewed, never by omission.
-  const ALLOWED_PUBLISH_CONFIG_KEYS = new Set(['registry', 'access', 'tag']);
+  // leviroutes-jaji: npm honours ANY npm config key from publishConfig at publish time
+  // (npm's package-json docs and lib/commands/publish.js: 'publishConfig in package.json
+  // can contain any config keys that npm supports in .npmrc files and elsewhere'), so this
+  // is not 'npm reads only these keys'. The allowlist is deliberately NARROWER than npm: it
+  // keeps only keys that can neither relocate or repackage the shipped tree nor disarm the
+  // lifecycle. 'registry' is pinned separately above; 'access'/'tag' are publish metadata;
+  // 'provenance' is the CI attestation flag. The keys this rejects include npm-native
+  // dangerous ones ('ignore-scripts' here would skip prepublishOnly at publish time) and
+  // tooling-honoured redirectors (pnpm/Yarn implement publishConfig.directory, shipping a
+  // DIFFERENT directory than the reviewed tree while every root-relative path assertion in
+  // this gate still passes). A new publishConfig key is added deliberately, with its
+  // semantics reviewed, never by omission.
+  const ALLOWED_PUBLISH_CONFIG_KEYS = new Set(['registry', 'access', 'tag', 'provenance']);
   if (pkg.publishConfig && typeof pkg.publishConfig === 'object') {
     for (const key of Object.keys(pkg.publishConfig)) {
       if (!ALLOWED_PUBLISH_CONFIG_KEYS.has(key)) {
-        registryOffenders.push(`package.json publishConfig.${key} is not an allowlisted publishConfig key (registry, access, tag)`);
+        registryOffenders.push(`package.json publishConfig.${key} is not an allowlisted publishConfig key (registry, access, tag, provenance)`);
       }
     }
   }
