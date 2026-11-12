@@ -85,6 +85,22 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
   if (pkg.publishConfig && pkg.publishConfig.registry && normalizeRegistry(pkg.publishConfig.registry) !== OFFICIAL_REGISTRY) {
     registryOffenders.push(`package.json publishConfig.registry=${pkg.publishConfig.registry}`);
   }
+  // leviroutes-teba: the gate pinned publishConfig.registry and left every other key
+  // unexamined, so an unknown key arrived as a quiet package.json edit and passed green.
+  // npm itself only reads registry/access/tag here, but publish tooling that honours more
+  // (pnpm and Yarn both implement publishConfig.directory, which ships a DIFFERENT directory
+  // than the reviewed tree) would redirect the published bytes while every path assertion in
+  // this gate still passes - they all resolve against the repository root, not against a
+  // relocated publish root. Fail closed on any key outside the allowlist: a new publishConfig
+  // key is added deliberately, with its semantics reviewed, never by omission.
+  const ALLOWED_PUBLISH_CONFIG_KEYS = new Set(['registry', 'access', 'tag']);
+  if (pkg.publishConfig && typeof pkg.publishConfig === 'object') {
+    for (const key of Object.keys(pkg.publishConfig)) {
+      if (!ALLOWED_PUBLISH_CONFIG_KEYS.has(key)) {
+        registryOffenders.push(`package.json publishConfig.${key} is not an allowlisted publishConfig key (registry, access, tag)`);
+      }
+    }
+  }
   // Scan one npm config file for the two settings that decide where a publish goes and whether the
   // lifecycle runs at all. Returns the offenders so the project, user and global layers all report
   // through the same rule instead of the project file being the only one checked (leviroutes-grg4).

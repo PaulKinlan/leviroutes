@@ -58,6 +58,47 @@ describe("verify-package registry pinning", function() {
     expect(result.error).toContain("https://registry.npmjs.org/");
   });
 
+  // leviroutes-teba: publishConfig keys outside the allowlist must fail closed. npm reads
+  // only registry/access/tag here; pnpm and Yarn honour publishConfig.directory, which ships
+  // a different tree than the one this gate reviewed.
+  it("passes the publishConfig check for allowlisted keys only", async function() {
+    fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({
+      name: "fixture", version: "1.0.0",
+      publishConfig: { registry: "https://registry.npmjs.org/", access: "public", tag: "latest" }
+    }));
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    // The publishConfig checks passed; the first failing check is the next one in line.
+    expect(result.error).toContain("missing main");
+  });
+
+  it("fails closed on publishConfig.directory even though npm ignores it", async function() {
+    fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({
+      name: "fixture", version: "1.0.0",
+      publishConfig: { registry: "https://registry.npmjs.org/", directory: "dist" }
+    }));
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("publishConfig.directory");
+    expect(result.error).toContain("allowlist");
+  });
+
+  it("fails closed on any other unknown publishConfig key", async function() {
+    fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({
+      name: "fixture", version: "1.0.0",
+      publishConfig: { executableFiles: ["./shim.js"] }
+    }));
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("publishConfig.executableFiles");
+  });
+
   it("fails when a committed .npmrc repins the registry", async function() {
     fs.writeFileSync(path.join(root, "package.json"), PKG);
     fs.writeFileSync(path.join(root, ".npmrc"), "# comment\n; another\nregistry=https://registry.example.internal/\n");
