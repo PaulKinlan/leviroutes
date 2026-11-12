@@ -317,14 +317,28 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
   // open rather than arrive as a lockfile edit.
   // leviroutes-m5ly: an entry with no resolved URL at all passes the host-pin loop and the integrity
   // check if resolved is missing. Every remote package must specify a resolved URL.
+  // leviroutes-zge0: the link exemption was a blanket skip, so a link-flagged entry carrying an
+  // arbitrary external resolved URL passed unchecked. A real npm workspace link never carries a
+  // remote resolved (npm 11.x refuses such an entry before fetching), so the exemption is scoped:
+  // only a link entry with no resolved, or a local file:/link: one, is exempt; a link entry with a
+  // remote resolved falls through to the host pin like any other entry.
+  // leviroutes-v6jt: npm writes entries for a dependency's BUNDLED dependencies with inBundle: true
+  // and no resolved/integrity at all - their bytes travel inside the parent's tarball, which is
+  // itself host-pinned and integrity-checked, and npm never fetches them, so requiring a resolved
+  // URL there only rejects lockfiles npm itself produced.
   const LOCAL_RESOLUTION = /^(?:file|link):/;
   const resolvedOffenders = [];
   const integrityOffenders = [];
   const missingResolvedOffenders = [];
   for (const [pkgKey, pkgEntry] of Object.entries(lock.packages)) {
     if (pkgKey === '') continue;
-    if (pkgEntry && pkgEntry.link) continue;
-    const resolved = pkgEntry && pkgEntry.resolved;
+    if (!pkgEntry) continue;
+    if (pkgEntry.inBundle === true) continue;
+    if (pkgEntry.link) {
+      const linkResolved = pkgEntry.resolved;
+      if (typeof linkResolved !== 'string' || linkResolved.trim() === '' || LOCAL_RESOLUTION.test(linkResolved)) continue;
+    }
+    const resolved = pkgEntry.resolved;
     if (typeof resolved !== 'string' || resolved.trim() === '') {
       missingResolvedOffenders.push(pkgKey);
       continue;

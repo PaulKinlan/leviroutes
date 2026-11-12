@@ -445,4 +445,53 @@ describe("verify-package no-build lifecycle contract", function() {
     expect(result.ok).toBe(false);
     expect(result.error).toContain("missing spec/support/jasmine.json");
   });
+
+  // leviroutes-zge0: the link exemption is scoped, not blanket - a link-flagged entry carrying
+  // a remote resolved URL falls through to the host pin like any other entry.
+  it("rejects a linked entry whose resolved URL points at a remote host", async function() {
+    fixture({}, {
+      "node_modules/a": {
+        version: "1.0.0", integrity: SRI, link: true,
+        resolved: "https://registry.example.internal/a/-/a-1.0.0.tgz"
+      }
+    });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("resolves packages from outside https://registry.npmjs.org/");
+    expect(result.error).toContain("registry.example.internal");
+  });
+
+  it("still accepts a linked entry whose resolved is a local link path", async function() {
+    fixture({}, {
+      "node_modules/linked": { version: "1.0.0", link: true, resolved: "link:../linked-pkg" }
+    });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("missing spec/support/jasmine.json");
+  });
+
+  // leviroutes-v6jt: npm writes entries for a dependency's bundled dependencies with
+  // inBundle: true and no resolved/integrity; their bytes travel inside the parent's
+  // host-pinned, integrity-checked tarball and npm never fetches them.
+  it("still accepts an inBundle entry with no resolved or integrity, as npm writes it", async function() {
+    fixture({}, {
+      "node_modules/a": {
+        version: "1.0.0", integrity: SRI,
+        resolved: "https://registry.npmjs.org/a/-/a-1.0.0.tgz"
+      },
+      "node_modules/a/node_modules/b": {
+        version: "1.0.0",
+        inBundle: true
+      }
+    });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("missing spec/support/jasmine.json");
+  });
 });
