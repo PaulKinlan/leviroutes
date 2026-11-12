@@ -308,7 +308,7 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
   };
 
   for (const [pkgKey, pkgEntry] of Object.entries(lock.packages)) {
-    if (pkgEntry.integrity && !checkSri(pkgEntry.integrity)) {
+    if (pkgEntry && pkgEntry.integrity && !checkSri(pkgEntry.integrity)) {
       return fail(`package-lock.json contains invalid integrity hash for ${pkgKey}: ${pkgEntry.integrity}`);
     }
   }
@@ -329,22 +329,21 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
   // only a link entry with no resolved, or a local file:/link: one, is exempt; a link entry with a
   // remote resolved falls through to the host pin like any other entry.
   // leviroutes-v6jt: npm writes entries for a dependency's BUNDLED dependencies with inBundle: true
-  // and no resolved/integrity at all - their bytes travel inside the parent's tarball, which is
-  // itself host-pinned and integrity-checked, and npm never fetches them, so requiring a resolved
-  // URL there only rejects lockfiles npm itself produced.
+  // and no resolved/integrity, so requiring a resolved URL there rejects lockfiles npm itself
+  // produced. leviroutes-czhj: the exemption is scoped the same way as link, because npm IGNORES
+  // inBundle when installing - an entry flagged inBundle with a remote resolved is fetched and
+  // installed exactly like an unflagged one (measured on npm 11.19.1: 'npm ci' GETs the URL), so
+  // only the shape npm actually writes (no resolved, or a local file:/link: one) may skip; a
+  // remote resolved falls through to the host pin and integrity checks.
   const LOCAL_RESOLUTION = /^(?:file|link):/;
   const resolvedOffenders = [];
   const integrityOffenders = [];
   const missingResolvedOffenders = [];
   for (const [pkgKey, pkgEntry] of Object.entries(lock.packages)) {
     if (pkgKey === '') continue;
-    if (!pkgEntry) continue;
-    if (pkgEntry.inBundle === true) continue;
-    if (pkgEntry.link) {
-      const linkResolved = pkgEntry.resolved;
-      if (typeof linkResolved !== 'string' || linkResolved.trim() === '' || LOCAL_RESOLUTION.test(linkResolved)) continue;
-    }
-    const resolved = pkgEntry.resolved;
+    const resolved = pkgEntry && pkgEntry.resolved;
+    const localOrMissing = typeof resolved !== 'string' || resolved.trim() === '' || LOCAL_RESOLUTION.test(resolved);
+    if (pkgEntry && (pkgEntry.link || pkgEntry.inBundle === true) && localOrMissing) continue;
     if (typeof resolved !== 'string' || resolved.trim() === '') {
       missingResolvedOffenders.push(pkgKey);
       continue;

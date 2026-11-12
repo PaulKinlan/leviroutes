@@ -475,8 +475,7 @@ describe("verify-package no-build lifecycle contract", function() {
   });
 
   // leviroutes-v6jt: npm writes entries for a dependency's bundled dependencies with
-  // inBundle: true and no resolved/integrity; their bytes travel inside the parent's
-  // host-pinned, integrity-checked tarball and npm never fetches them.
+  // inBundle: true and no resolved/integrity; only that npm-written shape is exempt.
   it("still accepts an inBundle entry with no resolved or integrity, as npm writes it", async function() {
     fixture({}, {
       "node_modules/a": {
@@ -493,5 +492,49 @@ describe("verify-package no-build lifecycle contract", function() {
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain("missing spec/support/jasmine.json");
+  });
+
+  // leviroutes-czhj: npm IGNORES inBundle when installing - a flagged entry with a remote
+  // resolved is fetched exactly like an unflagged one - so the exemption is scoped and this
+  // shape must fall through to the host pin.
+  it("rejects an inBundle entry whose resolved URL points at a remote host", async function() {
+    fixture({}, {
+      "node_modules/a/node_modules/b": {
+        version: "1.0.0", inBundle: true, integrity: SRI,
+        resolved: "https://registry.example.internal/b/-/b-1.0.0.tgz"
+      }
+    });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("resolves packages from outside https://registry.npmjs.org/");
+    expect(result.error).toContain("registry.example.internal");
+  });
+
+  it("rejects an inBundle entry resolved over plain http with no integrity", async function() {
+    fixture({}, {
+      "node_modules/a/node_modules/b": {
+        version: "1.0.0", inBundle: true,
+        resolved: "http://127.0.0.1:8123/b-1.0.0.tgz"
+      }
+    });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    // The integrity requirement runs before the host pin; both refuse this shape.
+    expect(result.error).toContain("resolves packages without an integrity hash (node_modules/a/node_modules/b)");
+  });
+
+  // A null packages[] entry is not exempt from anything: pre-delta code reported it as
+  // missing-resolved, and a hand-edited hole must stay loud.
+  it("rejects a null lockfile packages[] entry as missing its resolved URL", async function() {
+    fixture({}, { "node_modules/a": null });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("resolves packages without a resolved URL (node_modules/a)");
   });
 });
