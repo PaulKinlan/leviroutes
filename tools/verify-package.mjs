@@ -85,6 +85,28 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
   if (pkg.publishConfig && pkg.publishConfig.registry && normalizeRegistry(pkg.publishConfig.registry) !== OFFICIAL_REGISTRY) {
     registryOffenders.push(`package.json publishConfig.registry=${pkg.publishConfig.registry}`);
   }
+  // leviroutes-teba: the gate pinned publishConfig.registry and left every other key
+  // unexamined, so an unknown key arrived as a quiet package.json edit and passed green.
+  // leviroutes-jaji: npm honours ANY npm config key from publishConfig at publish time
+  // (npm's package-json docs and lib/commands/publish.js: 'publishConfig in package.json
+  // can contain any config keys that npm supports in .npmrc files and elsewhere'), so this
+  // is not 'npm reads only these keys'. The allowlist is deliberately NARROWER than npm: it
+  // keeps only keys that can neither relocate or repackage the shipped tree nor disarm the
+  // lifecycle. 'registry' is pinned separately above; 'access'/'tag' are publish metadata;
+  // 'provenance' is the CI attestation flag. The keys this rejects include npm-native
+  // dangerous ones ('ignore-scripts' here would skip prepublishOnly at publish time) and
+  // tooling-honoured redirectors (pnpm/Yarn implement publishConfig.directory, shipping a
+  // DIFFERENT directory than the reviewed tree while every root-relative path assertion in
+  // this gate still passes). A new publishConfig key is added deliberately, with its
+  // semantics reviewed, never by omission.
+  const ALLOWED_PUBLISH_CONFIG_KEYS = new Set(['registry', 'access', 'tag', 'provenance']);
+  if (pkg.publishConfig && typeof pkg.publishConfig === 'object') {
+    for (const key of Object.keys(pkg.publishConfig)) {
+      if (!ALLOWED_PUBLISH_CONFIG_KEYS.has(key)) {
+        registryOffenders.push(`package.json publishConfig.${key} is not an allowlisted publishConfig key (registry, access, tag, provenance)`);
+      }
+    }
+  }
   // Scan one npm config file for the two settings that decide where a publish goes and whether the
   // lifecycle runs at all. Returns the offenders so the project, user and global layers all report
   // through the same rule instead of the project file being the only one checked (leviroutes-grg4).
@@ -286,7 +308,7 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
   };
 
   for (const [pkgKey, pkgEntry] of Object.entries(lock.packages)) {
-    if (pkgEntry.integrity && !checkSri(pkgEntry.integrity)) {
+    if (pkgEntry && pkgEntry.integrity && !checkSri(pkgEntry.integrity)) {
       return fail(`package-lock.json contains invalid integrity hash for ${pkgKey}: ${pkgEntry.integrity}`);
     }
   }
@@ -301,14 +323,27 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
   // open rather than arrive as a lockfile edit.
   // leviroutes-m5ly: an entry with no resolved URL at all passes the host-pin loop and the integrity
   // check if resolved is missing. Every remote package must specify a resolved URL.
+  // leviroutes-zge0: the link exemption was a blanket skip, so a link-flagged entry carrying an
+  // arbitrary external resolved URL passed unchecked. A real npm workspace link never carries a
+  // remote resolved (npm 11.x refuses such an entry before fetching), so the exemption is scoped:
+  // only a link entry with no resolved, or a local file:/link: one, is exempt; a link entry with a
+  // remote resolved falls through to the host pin like any other entry.
+  // leviroutes-v6jt: npm writes entries for a dependency's BUNDLED dependencies with inBundle: true
+  // and no resolved/integrity, so requiring a resolved URL there rejects lockfiles npm itself
+  // produced. leviroutes-czhj: the exemption is scoped the same way as link, because npm IGNORES
+  // inBundle when installing - an entry flagged inBundle with a remote resolved is fetched and
+  // installed exactly like an unflagged one (measured on npm 11.19.1: 'npm ci' GETs the URL), so
+  // only the shape npm actually writes (no resolved, or a local file:/link: one) may skip; a
+  // remote resolved falls through to the host pin and integrity checks.
   const LOCAL_RESOLUTION = /^(?:file|link):/;
   const resolvedOffenders = [];
   const integrityOffenders = [];
   const missingResolvedOffenders = [];
   for (const [pkgKey, pkgEntry] of Object.entries(lock.packages)) {
     if (pkgKey === '') continue;
-    if (pkgEntry && pkgEntry.link) continue;
     const resolved = pkgEntry && pkgEntry.resolved;
+    const localOrMissing = typeof resolved !== 'string' || resolved.trim() === '' || LOCAL_RESOLUTION.test(resolved);
+    if (pkgEntry && (pkgEntry.link || pkgEntry.inBundle === true) && localOrMissing) continue;
     if (typeof resolved !== 'string' || resolved.trim() === '') {
       missingResolvedOffenders.push(pkgKey);
       continue;

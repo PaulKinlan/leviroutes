@@ -58,6 +58,50 @@ describe("verify-package registry pinning", function() {
     expect(result.error).toContain("https://registry.npmjs.org/");
   });
 
+  // leviroutes-teba: publishConfig keys outside the allowlist must fail closed. npm honours
+  // ANY npm config key from publishConfig at publish time (leviroutes-jaji), so the allowlist
+  // is deliberately narrower than npm: only keys that can neither relocate the shipped tree
+  // nor disarm the lifecycle.
+  it("passes the publishConfig check for allowlisted keys only", async function() {
+    fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({
+      name: "fixture", version: "1.0.0",
+      publishConfig: { registry: "https://registry.npmjs.org/", access: "public", tag: "latest", provenance: true }
+    }));
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    // The publishConfig checks passed; the first failing check is the next one in line.
+    expect(result.error).toContain("missing main");
+  });
+
+  it("fails closed on publishConfig.directory even though npm ignores it", async function() {
+    fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({
+      name: "fixture", version: "1.0.0",
+      publishConfig: { registry: "https://registry.npmjs.org/", directory: "dist" }
+    }));
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("publishConfig.directory");
+    expect(result.error).toContain("allowlist");
+  });
+
+  // leviroutes-jaji: the interesting case is an npm-NATIVE key that npm honours and this
+  // gate refuses - publishConfig.ignore-scripts would disarm prepublishOnly at publish time.
+  it("fails closed on an npm-native publishConfig key that would disarm the lifecycle", async function() {
+    fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({
+      name: "fixture", version: "1.0.0",
+      publishConfig: { "ignore-scripts": true }
+    }));
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("publishConfig.ignore-scripts");
+  });
+
   it("fails when a committed .npmrc repins the registry", async function() {
     fs.writeFileSync(path.join(root, "package.json"), PKG);
     fs.writeFileSync(path.join(root, ".npmrc"), "# comment\n; another\nregistry=https://registry.example.internal/\n");
