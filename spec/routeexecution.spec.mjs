@@ -495,6 +495,24 @@ describe("routing", function() {
     expect(hit).toEqual("search");
   });
 
+  it("should hand params to the handler as raw, undecoded pathname substrings", function() {
+    // README: params are raw pathname substrings, never decoded. The default
+    // parameter pattern excludes the literal separators '.', '/' and '\\', but
+    // their encoded forms are ordinary text to it, so the handler is the thing
+    // that must decode-then-validate (leviroutes-z32r, factory audit run-20261113T031403Z).
+    var seen = null;
+    r.get("/files/:name", function(req) {
+      seen = req.params.name;
+    });
+
+    expect(r.dispatch("/files/a%2fb")).toEqual(true);
+    expect(seen).toEqual("a%2fb");
+
+    // The separator only appears once the handler decodes, which is why a match
+    // cannot be treated as sanitisation.
+    expect(decodeURIComponent(seen)).toEqual("a/b");
+  });
+
   it("should not match a catch-all route when path is oversized", function() {
     var hit = null;
     var r3 = new routes();
