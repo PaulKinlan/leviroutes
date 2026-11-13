@@ -236,7 +236,11 @@ In dispatch mode the `req` passed to middleware and route callbacks gains:
 * `req.request` / `req.response` — the original objects passed to `dispatch()`
 * `req.values` — parsed from the query string (the server equivalent of the
   browser's form-field values). Duplicate keys collapse with last-wins semantics across both
-  browser forms and query strings, and distinct keys are capped to 1024.
+  browser forms and query strings, and distinct keys are capped to 1024. On an intercepted
+  same-origin POST it holds **every** named control of the submitted form — `type="hidden"`,
+  `type="password"` and `type="file"` included — and it is populated before any route or
+  middleware decision, so every `app.use()` middleware sees it. Treat it as unvalidated
+  input: do not serialise the whole object into logs or telemetry.
 
 `req.url` is the URL exactly as the caller supplied it — a Fetch `Request` keeps its absolute URL
 (origin and query included), a Node `IncomingMessage` its origin-form path and query, and a URL string
@@ -246,6 +250,13 @@ nothing in the framework validates the origin. A handler that cares about the ho
 must check `req.url` (or `req.values`) itself, and a handler that renders `req.url` must treat it as
 untrusted input. The same is true for browser form interception, where a form's `action` resolves to an
 absolute URL before matching.
+
+`req.params` are raw substrings of the pathname: they are never percent-decoded or normalised (see the
+matcher table above). The default parameter pattern excludes the literal separators `.`, `/` and `\`,
+but their encoded forms are just text to it — `/files/:name` matches `/files/a%2fb` with
+`params.name === "a%2fb"` — so a handler that decodes a parameter before use must decode-then-validate:
+allowlist the shape it expects and reject encoded separators, rather than treating the framework's match
+as sanitisation.
 
 ### Input bounds
 
