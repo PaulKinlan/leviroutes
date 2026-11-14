@@ -1497,18 +1497,23 @@ const routes = function(options) {
 
       var values = Object.create(null);
       var valuesCount = 0;
+      var valuesTruncated = false;
       if(e && e.target instanceof HTMLFormElement) {
         var form = e.target;
         var controls = form.elements || form;
         var count = controls.length;
         var item;
         for(var j = 0; j < count; j++) {
+          // leviroutes-go9a: the server carrier stopped scanning at MAX_VALUES_COUNT (leviroutes-esva)
+          // but this one iterated every control, so the two carriers README presents as equivalent
+          // degraded differently. Both stop at the same bound now, and both report the cut.
+          if(j >= MAX_VALUES_COUNT) { valuesTruncated = true; break; }
           item = controls[j] || form[j];
           if(item && !!item.name) {
             // Last-wins semantics for duplicate field names (leviroutes-ghj),
             // and bound distinct keys to MAX_VALUES_COUNT.
             if (!(item.name in values)) {
-              if (valuesCount >= MAX_VALUES_COUNT) continue;
+              if (valuesCount >= MAX_VALUES_COUNT) { valuesTruncated = true; continue; }
               valuesCount++;
             }
             values[item.name] = item.value;
@@ -1528,11 +1533,11 @@ const routes = function(options) {
           // scanning at the same bound; later parameters are simply not considered.
           var scanned = 0;
           for (var param of parsed.searchParams) {
-            if (scanned++ >= MAX_VALUES_COUNT) break;
+            if (scanned++ >= MAX_VALUES_COUNT) { valuesTruncated = true; break; }
             var name = param[0];
             var value = param[1];
             if (!(name in values)) {
-              if (valuesCount >= MAX_VALUES_COUNT) continue;
+              if (valuesCount >= MAX_VALUES_COUNT) { valuesTruncated = true; continue; }
               valuesCount++;
             }
             values[name] = value;
@@ -1541,6 +1546,10 @@ const routes = function(options) {
       }
 
       var req = {"url": url, "params": params, "values" : values, "e": e};
+      // leviroutes-go9a: only present when the carrier held more than MAX_VALUES_COUNT entries and
+      // the scan stopped, so a handler can tell a complete view from a bounded one. An absent key
+      // means every entry was examined.
+      if (valuesTruncated) req.valuesTruncated = true;
       if(server) {
         req.method = server.method;
         req.request = server.request;

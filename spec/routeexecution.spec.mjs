@@ -193,6 +193,36 @@ describe("routing", function() {
     expect(seen["k1024"]).toBeUndefined();
   });
 
+  it("should flag the form carrier as truncated at MAX_VALUES_COUNT", function() {
+    // leviroutes-go9a: this carrier iterated every control while the server carrier stopped at
+    // the bound, and neither reported the cut, so a handler could not tell a complete view from
+    // a bounded one. Both now stop at MAX_VALUES_COUNT and set req.valuesTruncated.
+    var seen = null;
+    r.post("/form-truncated", function(req) {
+      seen = req;
+    });
+
+    var form = document.createElement("form");
+    form.action = "/form-truncated";
+    form.method = "post";
+
+    for (var i = 0; i < 1100; i++) {
+      var input = document.createElement("input");
+      input.name = "t" + i;
+      input.value = "v" + i;
+      form.appendChild(input);
+    }
+
+    window.document.body.appendChild(form);
+
+    var e = new Event("submit", { bubbles: true, cancelable: true });
+    form.dispatchEvent(e);
+    window.document.body.removeChild(form);
+
+    expect(Object.keys(seen.values).length).toEqual(1024);
+    expect(seen.valuesTruncated).toBe(true);
+  });
+
   it("should not fall back to a native submit when a matched route's middleware throws", function() {
     var middlewareRan = false;
     var callbackRan = false;

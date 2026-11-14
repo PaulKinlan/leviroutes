@@ -211,6 +211,30 @@ describe("server dispatch", function() {
     expect(seen.values["p0"]).toEqual("v");
   });
 
+  it("should mark req.values as truncated when the carrier exceeds MAX_VALUES_COUNT", function() {
+    // leviroutes-go9a: the cap was silent, so a handler could not tell a complete view from a
+    // bounded one. Both carriers now stop at MAX_VALUES_COUNT and report the cut on the req.
+    var seen = null;
+    r.get("/bulk", function(req) { seen = req; });
+
+    var params = [];
+    for (var i = 0; i < 1100; i++) { params.push("q" + i + "=v"); }
+    r.dispatch({ url: "/bulk?" + params.join("&"), method: "GET" });
+
+    expect(Object.keys(seen.values).length).toEqual(1024);
+    expect(seen.valuesTruncated).toBe(true);
+  });
+
+  it("should leave valuesTruncated unset when every entry was examined", function() {
+    var seen = null;
+    r.get("/small", function(req) { seen = req; });
+
+    r.dispatch({ url: "/small?a=1&b=2", method: "GET" });
+
+    expect(seen.values.b).toEqual("2");
+    expect(seen.valuesTruncated).toBeUndefined();
+  });
+
   it("should run the middleware chain before the route callback", function() {
     var order = [];
     r.use(function(req, next) { order.push("mw1"); next(); });
