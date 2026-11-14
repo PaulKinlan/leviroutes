@@ -147,6 +147,26 @@ else
   ok "1m no inherited NODE_COMPILE_CACHE (run under tools/full-gate.sh to exercise the clear)"
 fi
 
+# 1n. A change under spec/helpers/ or spec/support/ selects EVERY suite: spec/support/jasmine.json
+# auto-loads helpers/**/*.?(m)js into all specs, and helpers are imported directly too (the two
+# verifypackage specs import npm-env-helper.mjs), so a helper edit can break any of the 11 suites
+# (leviroutes-2bs9: the rows named only the 6 DOM suites, so an edit to npm-env-helper.mjs went
+# green with its only consumers never selected).
+rm -f "$RUN_LOG"
+out=$(run --list --changed spec/helpers/fixture.mjs)
+for s in spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs \
+         spec/routeparsing.spec.mjs spec/routesframework.spec.mjs spec/fixtureisolation.spec.mjs \
+         spec/urlpatternmatcher.spec.mjs spec/serverdispatch.spec.mjs \
+         spec/verifypackage-lifecycle.spec.mjs spec/verifypackage-registry.spec.mjs \
+         spec/repohygiene.spec.mjs; do
+  has "$out" "$s" "1n helper change selects $s"
+done
+n_selected=$(grep -c . <<<"$out")
+[ "$n_selected" = 11 ] && ok "1n2 helper change selects exactly the 11 suites" || bad "1n2 helper change selects exactly the 11 suites" "got $n_selected"
+out_support=$(run --list --changed spec/support/jasmine.json)
+has "$out_support" "spec/verifypackage-lifecycle.spec.mjs" "1n3 support change selects verifypackage-lifecycle"
+has "$out_support" "spec/repohygiene.spec.mjs" "1n4 support change selects repohygiene"
+
 # 2. Unmapped changed file fails loudly
 out=$(run --changed src/unknown.js)
 rc=$?

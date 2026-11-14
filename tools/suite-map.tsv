@@ -9,8 +9,12 @@ src/routes.js	spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routema
 # --- Test framework / fixtures ---
 # spec/fixtureisolation.spec.mjs constructs routers and pins history.pushState/listener
 # isolation, so it belongs on every row that can change router construction or the fixtures.
-spec/helpers/**	spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs spec/fixtureisolation.spec.mjs
-spec/support/**	spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs spec/fixtureisolation.spec.mjs
+# spec/support/jasmine.json auto-loads helpers/**/*.?(m)js into EVERY spec, and helpers are
+# imported directly too (the verifypackage specs import npm-env-helper.mjs), so an edit under
+# either path can break any suite: both rows must name all of them (leviroutes-2bs9: naming
+# only the 6 DOM suites left npm-env-helper.mjs's only consumers unselected by the gate).
+spec/helpers/**	spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs spec/fixtureisolation.spec.mjs spec/urlpatternmatcher.spec.mjs spec/serverdispatch.spec.mjs spec/verifypackage-lifecycle.spec.mjs spec/verifypackage-registry.spec.mjs spec/repohygiene.spec.mjs
+spec/support/**	spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs spec/routeparsing.spec.mjs spec/routesframework.spec.mjs spec/fixtureisolation.spec.mjs spec/urlpatternmatcher.spec.mjs spec/serverdispatch.spec.mjs spec/verifypackage-lifecycle.spec.mjs spec/verifypackage-registry.spec.mjs spec/repohygiene.spec.mjs
 
 # --- Packaging, lockfile and gate tooling ---
 # The gate self-tests read package.json/package-lock.json shapes directly (Section 4's fixtures
