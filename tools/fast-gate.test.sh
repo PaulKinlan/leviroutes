@@ -149,23 +149,22 @@ fi
 
 # 1n. A change under spec/helpers/ or spec/support/ selects EVERY suite: spec/support/jasmine.json
 # auto-loads helpers/**/*.?(m)js into all specs, and helpers are imported directly too (the two
-# verifypackage specs import npm-env-helper.mjs), so a helper edit can break any of the 11 suites
-# (leviroutes-2bs9: the rows named only the 6 DOM suites, so an edit to npm-env-helper.mjs went
-# green with its only consumers never selected).
+# verifypackage specs import npm-env-helper.mjs), so a helper edit can break any of the suites
+# (leviroutes-2bs9). The expected set is DERIVED from the checkout's spec/ directory (the pattern
+# 9c uses), not snapshotted: a future spec added under spec/ must be either selected or red. The
+# first cut hard-coded today's suite list and asserted a count, which recreated the false green
+# on the first new spec AND punished the correct fix until the literal was edited (leviroutes-9qhq).
 rm -f "$RUN_LOG"
-out=$(run --list --changed spec/helpers/fixture.mjs)
-for s in spec/middleware.spec.mjs spec/routeexecution.spec.mjs spec/routemanagement.spec.mjs \
-         spec/routeparsing.spec.mjs spec/routesframework.spec.mjs spec/fixtureisolation.spec.mjs \
-         spec/urlpatternmatcher.spec.mjs spec/serverdispatch.spec.mjs \
-         spec/verifypackage-lifecycle.spec.mjs spec/verifypackage-registry.spec.mjs \
-         spec/repohygiene.spec.mjs; do
-  has "$out" "$s" "1n helper change selects $s"
-done
-n_selected=$(grep -c . <<<"$out")
-[ "$n_selected" = 11 ] && ok "1n2 helper change selects exactly the 11 suites" || bad "1n2 helper change selects exactly the 11 suites" "got $n_selected"
-out_support=$(run --list --changed spec/support/jasmine.json)
-has "$out_support" "spec/verifypackage-lifecycle.spec.mjs" "1n3 support change selects verifypackage-lifecycle"
-has "$out_support" "spec/repohygiene.spec.mjs" "1n4 support change selects repohygiene"
+REAL_ROOT=$(cd "$HERE/.." && pwd)
+expected_suites=$(cd "$REAL_ROOT" && printf '%s\n' spec/*.spec.mjs | sort)
+out=$(run --list --changed spec/helpers/fixture.mjs | grep -v '^fast-gate:\|^witnessed:' | sort)
+diff_out=$(diff <(printf '%s\n' "$expected_suites") <(printf '%s\n' "$out") | head -8)
+[ "$out" = "$expected_suites" ] && ok "1n helper change selects exactly the checkout's spec set" \
+  || bad "1n helper change selects exactly the checkout's spec set" "selection differs from spec/*.spec.mjs:$diff_out"
+out_support=$(run --list --changed spec/support/jasmine.json | grep -v '^fast-gate:\|^witnessed:' | sort)
+diff_out=$(diff <(printf '%s\n' "$expected_suites") <(printf '%s\n' "$out_support") | head -8)
+[ "$out_support" = "$expected_suites" ] && ok "1n2 support change selects exactly the checkout's spec set" \
+  || bad "1n2 support change selects exactly the checkout's spec set" "selection differs from spec/*.spec.mjs:$diff_out"
 
 # 2. Unmapped changed file fails loudly
 out=$(run --changed src/unknown.js)
@@ -270,7 +269,6 @@ mv "$ROOT/map.hidden" "$ROOT/repo/tools/suite-map.tsv"
 # row names only runs when it is itself changed, so a src/ change silently skips it
 # (leviroutes-gr4: spec/fixtureisolation.spec.mjs was omitted exactly this way, and only the
 # gate's coverage warning noticed). Reads the real checkout, not the throwaway repo.
-REAL_ROOT=$(cd "$HERE/.." && pwd)
 REAL_MAP="$REAL_ROOT/tools/suite-map.tsv"
 if [ ! -f "$REAL_MAP" ]; then
   bad "9c cannot read the checkout's suite map" "$REAL_MAP"
