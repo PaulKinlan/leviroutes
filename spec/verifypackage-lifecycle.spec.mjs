@@ -233,6 +233,57 @@ describe("verify-package no-build lifecycle contract", function() {
     expect(result.error).toContain("missing spec/support/jasmine.json");
   });
 
+  // leviroutes-jox5: entry points and files[] were only compared to EACH OTHER, so a package.json
+  // that agreed on a path OUTSIDE the root satisfied every layout check even though npm's packlist
+  // drops those paths - the gate then certifies an entry point the tarball cannot contain.
+  it("rejects entry points that escape the package root", async function() {
+    fixture({
+      main: "../evil.js",
+      module: "../evil.js",
+      browser: "../evil.js",
+      exports: { ".": { browser: "../evil.js", import: "../evil.js" } },
+      files: ["../evil.js"]
+    });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("main resolves outside the package root (../evil.js)");
+  });
+
+  it("rejects an absolute entry point", async function() {
+    fixture({
+      main: "/srv/app/src/routes.js",
+      module: "/srv/app/src/routes.js",
+      browser: "/srv/app/src/routes.js",
+      exports: { ".": { browser: "/srv/app/src/routes.js", import: "/srv/app/src/routes.js" } },
+      files: ["/srv/app/src/routes.js"]
+    });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("main resolves outside the package root (/srv/app/src/routes.js)");
+  });
+
+  it("rejects a files[] entry that escapes the package root", async function() {
+    fixture({ files: ["src/", "../outside/", "README.md"] });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("files[1] resolves outside the package root (../outside)");
+  });
+
+  it("rejects an absolute files[] entry", async function() {
+    fixture({ files: ["src/", "/etc", "README.md"] });
+
+    const result = await verifyPackage(root, { exitOnError: false, skipExecution: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("files[1] resolves outside the package root (/etc)");
+  });
+
   // leviroutes-qubh: the five required fields were the only ones bound, so a dist artifact could
   // still be reached through exports["."].default / .require, an export subpath, or the CDN fields.
   it("rejects an exports default/require condition that points at another artifact", async function() {
