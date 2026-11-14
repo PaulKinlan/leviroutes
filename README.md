@@ -236,7 +236,10 @@ In dispatch mode the `req` passed to middleware and route callbacks gains:
 * `req.request` / `req.response` — the original objects passed to `dispatch()`
 * `req.values` — parsed from the query string (the server equivalent of the
   browser's form-field values). Duplicate keys collapse with last-wins semantics across both
-  browser forms and query strings, and distinct keys are capped to 1024. On an intercepted
+  browser forms and query strings, and each carrier stops examining its input after 1024
+  entries, so at most 1024 distinct keys are stored. When that bound cuts the input, `req` also
+  carries `req.valuesTruncated === true` and the object may be incomplete; an absent key means
+  every entry was examined (leviroutes-go9a). On an intercepted
   same-origin POST it holds **every** named control of the submitted form — `type="hidden"`,
   `type="password"` and `type="file"` included — and it is populated before any route or
   middleware decision, so every `app.use()` middleware sees it. Treat it as unvalidated

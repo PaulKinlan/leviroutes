@@ -192,6 +192,23 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
   // which is exactly the defect o71 fixed. Normalise the targets once and bind them together.
   const normalizeTarget = (target) => path.posix.normalize(String(target).trim().replace(/^\.\//, '')).replace(/\/+$/, '');
   const normalizedEntries = requiredEntries.map((entry) => ({ field: entry.field, target: normalizeTarget(entry.target) }));
+  // leviroutes-jox5: the entries below were only ever compared to EACH OTHER, so a package.json
+  // that agreed on an out-of-root path ('main': '../evil.js' with the same value in every other
+  // entry point and in files[]) satisfied the binding check. npm's packlist silently drops paths
+  // outside the package root, so the gate certified a package whose advertised entry point cannot
+  // exist in the published tarball - and the files[]-covers-source check was satisfied by a path
+  // that ships nothing. A published path has to stay inside the root before any comparison runs.
+  const escapesRoot = (target) => path.posix.isAbsolute(target) || target === '..' || target.startsWith('../') || /^[A-Za-z]:[\\/]/.test(target) || target.startsWith('\\\\');
+  const assertInsideRoot = (target, label) => {
+    if (escapesRoot(target)) {
+      return fail(`${label} resolves outside the package root (${target}); every published path must stay inside it`);
+    }
+    return null;
+  };
+  for (const entry of normalizedEntries) {
+    const outside = assertInsideRoot(entry.target, entry.field);
+    if (outside) return outside;
+  }
   const primaryTarget = normalizedEntries.find((entry) => entry.field === 'main').target;
   for (const entry of normalizedEntries) {
     if (entry.target !== primaryTarget) {
@@ -217,6 +234,8 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
   }
   for (const entry of extraEntryPoints) {
     const target = normalizeTarget(entry.target);
+    const outside = assertInsideRoot(target, entry.field);
+    if (outside) return outside;
     if (target !== primaryTarget) {
       return fail(`${entry.field} resolves to ${target} but main resolves to ${primaryTarget}; every entry point must load the same shipped source rather than a substituted artifact`);
     }
@@ -243,6 +262,10 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
     return fail(`package.json files[] uses a glob (${globbedFiles.join(', ')}), which can pull in build output the gate cannot see; state the published paths literally`);
   }
   const filesEntries = pkg.files.map(normalizeTarget);
+  for (let index = 0; index < filesEntries.length; index++) {
+    const outside = assertInsideRoot(filesEntries[index], `files[${index}]`);
+    if (outside) return outside;
+  }
   const buildOutputs = filesEntries.filter((entry) => BUILD_OUTPUT_PATTERN.test(entry));
   if (buildOutputs.length > 0) {
     return fail(`package.json files[] names build output (${buildOutputs.join(', ')}); the package ships reviewed source, not a generated artifact`);
