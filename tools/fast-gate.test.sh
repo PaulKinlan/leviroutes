@@ -439,17 +439,60 @@ const liveItTitles = (source) => {
   // (a template containing it("...") would break the call matcher itself).
   const netBraces = (text) => {
     let net = 0;
-    let q = null;
-    for (let i = 0; i < text.length; i++) {
+    let i = 0;
+    let prev = "";
+    let word = "";
+    const apos = String.fromCharCode(39);
+    const regexAfter = new Set(["", "(", "[", "{", ",", "=", ":", "!", "&", "|", "?", ";", "+", "-", "*", "%", "~", "^", ">", "<"]);
+    const regexKeywords = new Set(["return", "typeof", "case", "in", "of", "new", "delete", "void", "do", "else"]);
+    while (i < text.length) {
       const ch = text.charAt(i);
-      if (q !== null) {
-        if (ch === "\\") { i++; continue; }
-        if (ch === q) q = null;
+      if (ch === "\"" || ch === apos || ch === "`") {
+        i++;
+        while (i < text.length) {
+          const c = text.charAt(i);
+          if (c === "\\") { i += 2; continue; }
+          if (c === ch) { i++; break; }
+          i++;
+        }
+        prev = "quote";
+        word = "";
         continue;
       }
-      if (ch === "\"" || ch === String.fromCharCode(39) || ch === "`") { q = ch; continue; }
-      if (ch === "{") net++;
-      else if (ch === "}") net--;
+      if (text.substr(i, 2) === "//") {
+        while (i < text.length && text.charAt(i) !== "\n") i++;
+        word = "";
+        continue;
+      }
+      if (text.substr(i, 2) === "/*") {
+        const close = text.indexOf("*/", i + 2);
+        i = close === -1 ? text.length : close + 2;
+        word = "";
+        continue;
+      }
+      if (ch === "/" && (regexAfter.has(prev) || regexKeywords.has(word))) {
+        i++;
+        let inClass = false;
+        while (i < text.length) {
+          const c = text.charAt(i);
+          if (c === "\\") { i += 2; continue; }
+          if (c === "[") inClass = true;
+          else if (c === "]") inClass = false;
+          else if (c === "/" && !inClass) break;
+          i++;
+        }
+        i++;
+        while (i < text.length && /[a-z]/i.test(text.charAt(i))) i++;
+        prev = "/";
+        word = "";
+        continue;
+      }
+      if (ch === "{") { net++; prev = "{"; word = ""; i++; continue; }
+      if (ch === "}") { net--; prev = "}"; word = ""; i++; continue; }
+      if (/\s/.test(ch)) { i++; continue; }
+      if (/[A-Za-z0-9_$]/.test(ch)) { word += ch; } else { word = ""; }
+      prev = ch;
+      i++;
     }
     return net;
   };
