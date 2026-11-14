@@ -76,7 +76,9 @@ not another constant. Runtime budget for dispatch overall is a separate, tracked
 - `req.values`: every named control of an intercepted same-origin POST — `hidden`, `password` and
   `file` included — plus the query string on the server path. Last-wins per duplicate key, capped at
   `MAX_VALUES_COUNT` (1024) distinct keys, and populated **before** route selection, so every
-  `app.use()` middleware sees it. Telemetry must not serialise it wholesale.
+  `app.use()` middleware sees it. Both carriers stop examining their input at that bound, and when
+  the cut happens the req carries `valuesTruncated: true`, so a handler can tell a complete view from
+  a bounded one. Telemetry must not serialise it wholesale.
 
 ## 6. Page-global mutation
 
@@ -88,6 +90,8 @@ single-page router that owns the document; navigation dedup keys off the event p
 ## 7. Publish gate (`tools/verify-package.mjs`)
 
 Guarded: registry pinned to `https://registry.npmjs.org/` in npm's own boolean coercion;
+every entry point and `files[]` entry confined to the package root (an absolute or `..` path is
+rejected before the mutual-binding check, since npm's packlist drops out-of-root paths);
 `files[]` literal and covering the shipped source; `prepublishOnly` exactly
 `npm test && npm run verify:package`; no unallowlisted lifecycle hooks; no unallowlisted
 `publishConfig` key; every remote lockfile entry with `resolved` on the pinned host and an
