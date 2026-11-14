@@ -381,6 +381,32 @@ contract_drift=$(node -e '
 [ -z "$contract_drift" ] && ok "9g coverage contract suites match suite-map selection for all keys" \
   || bad "9g coverage contract drift" "$contract_drift"
 
+# 9h. Every lockfile-resolution exemption row must name the spec assertion that pins it, and
+# that assertion must exist in the checkout (leviroutes-vgeu: the exemption rules were inline
+# continue branches that each landed with one fix and were re-scoped by the next; the table in
+# tools/verify-package.mjs plus this guard means a new exemption cannot land without its spec
+# coverage, and deleting or renaming the assertion fails the gate). Reads the REAL checkout's
+# tools/verify-package.mjs, not the throwaway repo's stub.
+exemption_drift=$( cd "$REAL_ROOT" && node --input-type=module -e '
+import fs from "node:fs";
+import path from "node:path";
+const { pathToFileURL } = await import("node:url");
+const { LOCKFILE_RESOLUTION_EXEMPTIONS } = await import(pathToFileURL(path.resolve("tools/verify-package.mjs")));
+const errors = [];
+for (const row of LOCKFILE_RESOLUTION_EXEMPTIONS) {
+  if (!row.name || !row.justification) { errors.push((row.name || "unnamed row") + ": missing name or justification"); }
+  if (!row.specFile || !row.specTitle) { errors.push((row.name || "unnamed row") + ": missing specFile or specTitle"); continue; }
+  const specPath = path.resolve(row.specFile);
+  if (!fs.existsSync(specPath)) { errors.push(row.name + ": spec file does not exist: " + row.specFile); continue; }
+  if (!fs.readFileSync(specPath, "utf8").includes(row.specTitle)) {
+    errors.push(row.name + ": spec assertion not found in " + row.specFile + ": " + row.specTitle);
+  }
+}
+if (errors.length) { console.log(errors.join("; ")); process.exit(1); }
+' 2>&1 )
+[ -z "$exemption_drift" ] && ok "9h every lockfile-resolution exemption names an existing spec assertion" \
+  || bad "9h lockfile-resolution exemption drift" "$exemption_drift"
+
 echo "=== Section 2: check-cmd.sh and check.conf validation ==="
 
 TEST_HOME="$ROOT/home"

@@ -6,6 +6,48 @@ import { execSync } from 'node:child_process';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const defaultRoot = path.resolve(here, '..');
 
+// leviroutes-vgeu: the lockfile resolution-exemption rules were inline continue branches in
+// the host-pin loop, each introduced by one fix and re-scoped by the next (zge0/v6jt scoped
+// the link and inBundle exemptions, czhj re-scoped both again). They are one table now: a row
+// may exempt an entry from the resolved-source/integrity checks ONLY with a name, the
+// justification that introduced it, and the exact spec assertion that pins it.
+// tools/fast-gate.test.sh (9h) enforces that the named assertion exists in the checkout, so a
+// new exemption cannot land without its spec coverage and a deleted assertion fails the gate.
+const LOCAL_RESOLUTION = /^(?:file|link):/;
+export const LOCKFILE_RESOLUTION_EXEMPTIONS = [
+  {
+    name: 'root entry is package metadata',
+    predicate: ({ pkgKey }) => pkgKey === '',
+    justification: "lock.packages[''] describes the package itself, not a dependency resolution; every lockfile fixture exercises it",
+    specFile: 'spec/verifypackage-lifecycle.spec.mjs',
+    specTitle: 'accepts lockfile entries resolved from the pinned registry',
+  },
+  {
+    name: 'link entry with a local or absent resolution',
+    predicate: ({ pkgEntry, localOrMissing }) => !!pkgEntry && pkgEntry.link && localOrMissing,
+    justification: 'a real npm workspace link cannot be remotely substituted and npm refuses link entries carrying a remote resolved; a link entry WITH a remote resolved falls through to the host pin (leviroutes-zge0)',
+    specFile: 'spec/verifypackage-lifecycle.spec.mjs',
+    specTitle: 'rejects a linked entry whose resolved URL points at a remote host',
+  },
+  {
+    name: 'inBundle entry with a local or absent resolution',
+    predicate: ({ pkgEntry, localOrMissing }) => !!pkgEntry && pkgEntry.inBundle === true && localOrMissing,
+    justification: 'npm writes bundled dependencies with inBundle: true and no resolved/integrity, and IGNORES the flag at install time, so only the npm-written shape may skip; a flagged entry with a remote resolved falls through (leviroutes-v6jt, leviroutes-czhj)',
+    specFile: 'spec/verifypackage-lifecycle.spec.mjs',
+    specTitle: 'rejects an inBundle entry whose resolved URL points at a remote host',
+  },
+  {
+    name: 'local file:/link: resolution',
+    predicate: ({ resolved }) => typeof resolved === 'string' && LOCAL_RESOLUTION.test(resolved),
+    justification: 'a file:/link: resolution cannot be substituted remotely and legitimately carries no integrity hash (leviroutes-e0f)',
+    specFile: 'spec/verifypackage-lifecycle.spec.mjs',
+    specTitle: 'still accepts a local file/link resolution, which no remote host can substitute',
+  },
+];
+
+const isResolutionExempt = ({ pkgKey, pkgEntry, resolved, localOrMissing }) =>
+  LOCKFILE_RESOLUTION_EXEMPTIONS.some((exemption) => exemption.predicate({ pkgKey, pkgEntry, resolved, localOrMissing }));
+
 export async function verifyPackage(root = defaultRoot, options = {}) {
   const { exitOnError = true, skipExecution = false } = options;
 
@@ -346,32 +388,20 @@ export async function verifyPackage(root = defaultRoot, options = {}) {
   // open rather than arrive as a lockfile edit.
   // leviroutes-m5ly: an entry with no resolved URL at all passes the host-pin loop and the integrity
   // check if resolved is missing. Every remote package must specify a resolved URL.
-  // leviroutes-zge0: the link exemption was a blanket skip, so a link-flagged entry carrying an
-  // arbitrary external resolved URL passed unchecked. A real npm workspace link never carries a
-  // remote resolved (npm 11.x refuses such an entry before fetching), so the exemption is scoped:
-  // only a link entry with no resolved, or a local file:/link: one, is exempt; a link entry with a
-  // remote resolved falls through to the host pin like any other entry.
-  // leviroutes-v6jt: npm writes entries for a dependency's BUNDLED dependencies with inBundle: true
-  // and no resolved/integrity, so requiring a resolved URL there rejects lockfiles npm itself
-  // produced. leviroutes-czhj: the exemption is scoped the same way as link, because npm IGNORES
-  // inBundle when installing - an entry flagged inBundle with a remote resolved is fetched and
-  // installed exactly like an unflagged one (measured on npm 11.19.1: 'npm ci' GETs the URL), so
-  // only the shape npm actually writes (no resolved, or a local file:/link: one) may skip; a
-  // remote resolved falls through to the host pin and integrity checks.
-  const LOCAL_RESOLUTION = /^(?:file|link):/;
+  // The exemption branches that used to sit inline here (root key, link/inBundle + localOrMissing,
+  // LOCAL_RESOLUTION) are the LOCKFILE_RESOLUTION_EXEMPTIONS table above; zge0/v6jt/czhj scoped
+  // them and their spec assertions are what keep them scoped.
   const resolvedOffenders = [];
   const integrityOffenders = [];
   const missingResolvedOffenders = [];
   for (const [pkgKey, pkgEntry] of Object.entries(lock.packages)) {
-    if (pkgKey === '') continue;
     const resolved = pkgEntry && pkgEntry.resolved;
     const localOrMissing = typeof resolved !== 'string' || resolved.trim() === '' || LOCAL_RESOLUTION.test(resolved);
-    if (pkgEntry && (pkgEntry.link || pkgEntry.inBundle === true) && localOrMissing) continue;
+    if (isResolutionExempt({ pkgKey, pkgEntry, resolved, localOrMissing })) continue;
     if (typeof resolved !== 'string' || resolved.trim() === '') {
       missingResolvedOffenders.push(pkgKey);
       continue;
     }
-    if (LOCAL_RESOLUTION.test(resolved)) continue;
     if (!resolved.startsWith(OFFICIAL_REGISTRY)) resolvedOffenders.push(`${pkgKey} -> ${resolved}`);
     // leviroutes-6dub: host pinning bounds WHERE the bytes come from, but an entry with no integrity hash
     // has nothing to check those bytes against - npm installs whatever the host returns, and the SRI loop
