@@ -154,15 +154,18 @@ fi
 # 9c uses), not snapshotted: a future spec added under spec/ must be either selected or red. The
 # first cut hard-coded today's suite list and asserted a count, which recreated the false green
 # on the first new spec AND punished the correct fix until the literal was edited (leviroutes-9qhq).
-# Both extensions the gate's self-map covers (.mjs and .js) are derived; an unmatched glob's
-# literal is dropped, and a .js-only suite stays covered by the same invariant (leviroutes-wchs).
+# Both extensions the gate's self-map covers (.mjs and .js) are derived; the set is ANY depth,
+# the same derivation the 9c audit uses, because jasmine.json discovers **/*[sS]pec.?(m)js at
+# any depth (leviroutes-6e8d). A nested suite rowed only to itself therefore REDS 1n (the
+# helper selection lacks it - green and dead to helper edits, the 2bs9 class one directory
+# deeper) and the correct mapping into the helper rows passes (leviroutes-4gwj).
 rm -f "$RUN_LOG"
 REAL_ROOT=$(cd "$HERE/.." && pwd)
-expected_suites=$(cd "$REAL_ROOT" && printf '%s\n' spec/*.spec.mjs spec/*.spec.js | grep -v '\*' | sort -u)
+expected_suites=$(cd "$REAL_ROOT" && find spec -type f \( -name '*[sS]pec.mjs' -o -name '*[sS]pec.js' \) | sort)
 out=$(run --list --changed spec/helpers/fixture.mjs | grep -v '^fast-gate:\|^witnessed:' | sort)
 diff_out=$(diff <(printf '%s\n' "$expected_suites") <(printf '%s\n' "$out") | head -8)
 [ "$out" = "$expected_suites" ] && ok "1n helper change selects exactly the checkout's spec set" \
-  || bad "1n helper change selects exactly the checkout's spec set" "selection differs from spec/*.spec.(m)js:$diff_out"
+  || bad "1n helper change selects exactly the checkout's spec set" "selection differs from the jasmine-discovered spec set (any depth):$diff_out"
 out_support=$(run --list --changed spec/support/jasmine.json | grep -v '^fast-gate:\|^witnessed:' | sort)
 diff_out=$(diff <(printf '%s\n' "$expected_suites") <(printf '%s\n' "$out_support") | head -8)
 [ "$out_support" = "$expected_suites" ] && ok "1n2 support change selects exactly the checkout's spec set" \
