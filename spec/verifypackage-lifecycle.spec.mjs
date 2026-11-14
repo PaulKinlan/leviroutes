@@ -12,6 +12,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { verifyPackage } from '../tools/verify-package.mjs';
 import { isolateNpmEnv } from './helpers/npm-env-helper.mjs';
 
@@ -120,20 +121,43 @@ describe("verify-package no-build lifecycle contract", function() {
     expect(result.error).toContain("missing spec/support/jasmine.json");
   });
 
-  // npm auto-runs a package's install-family scripts on every consumer machine
-  // at npm install, and the publish/version family around npm publish and
-  // npm version. None of them are seen by the prepublishOnly gate, so each must
-  // be rejected outright (leviroutes-1bty: the original nine-entry denylist
-  // covered neither family).
-  var consumerAndPublishHooks = [
+  // Every entry of tools/verify-package.mjs's forbiddenHooks list, restated here ON PURPOSE.
+  // Deriving it from the guard would defeat the test: a mutation that deletes an entry would
+  // shorten the list under test too and the suite would stay green - which is exactly what
+  // happened for 9 of the 21 entries, 'prepare' among them (leviroutes-0b7p).
+  // npm auto-runs the install family on every consumer machine at npm install, and the
+  // publish/version family around npm publish and npm version; pre<script>/post<script> also run
+  // for any `npm run <script>`. None of them is covered by the prepublishOnly gate, so each must
+  // be rejected outright (leviroutes-1bty for the two hook families originally missed,
+  // leviroutes-0b7p for the nine entries no assertion named).
+  var forbiddenHooks = [
+    "prebuild", "prebuild:min", "postbuild", "postbuild:min",
+    "pretest", "posttest",
+    "prepublish", "prepare", "prepack", "postpack", "publish", "postpublish",
+    "preversion", "version", "postversion",
     "preinstall", "install", "postinstall",
-    "preuninstall", "uninstall", "postuninstall",
-    "publish", "postpublish", "preversion", "version", "postversion",
-    "postpack"
+    "preuninstall", "uninstall", "postuninstall"
   ];
 
-  consumerAndPublishHooks.forEach(function(hook) {
-    it("rejects the consumer/publish-side lifecycle hook '" + hook + "'", async function() {
+  it("pins exactly the guard's forbiddenHooks list", function() {
+    // The other direction of the same contract: an entry ADDED to the guard without an assertion
+    // fails here, so the list cannot drift open again in silence.
+    var guardSource = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../tools/verify-package.mjs"),
+      "utf8"
+    );
+    var match = /const forbiddenHooks = \[([\s\S]*?)\];/.exec(guardSource);
+    expect(match).not.toBe(null);
+
+    var guardHooks = (match[1].match(/'[^']+'/g) || []).map(function(entry) {
+      return entry.slice(1, -1);
+    });
+
+    expect(guardHooks.slice().sort()).toEqual(forbiddenHooks.slice().sort());
+  });
+
+  forbiddenHooks.forEach(function(hook) {
+    it("rejects the forbidden lifecycle hook '" + hook + "'", async function() {
       fixture({ scripts: {
         test: "jasmine",
         "verify:package": "node tools/verify-package.mjs",
