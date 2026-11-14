@@ -513,6 +513,33 @@ describe("route parsing", function() {
       r.get("/x/:id((\\d+){3})", function(){});
     }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
 
+    // leviroutes-5xyj: an OPTIONAL or bounded-but-overlapping atom between unbounded neighbours
+    // does not separate them - it can match empty, or the boundary can slide through its bounded
+    // span - so the run continues through it. '/x/:a(\d+)-?:b(\d+)-?:c(\d+)' measured 26.8s on
+    // a 4090-char near-miss (inside MAX_PATH_LENGTH), the same cubic cost as the run of 3 with no
+    // separator at all, while the old reset-on-any-bounded-atom split it into runs of 1 and the
+    // guard never fired. Only an atom that ANCHORS the partition (required, and cannot match the
+    // neighbours' text, like a literal '-') resets a run - those stay accepted in the spec below.
+    expect(function() {
+      r.get("/x/:a(\\d+)-?:b(\\d+)-?:c(\\d+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/x/:a(\\d+)-?-?:b(\\d+)-?-?:c(\\d+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/x/:a(\\d+)-{0,1}:b(\\d+)-{0,1}:c(\\d+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/x/:id(\\d+(?:-)?\\d+(?:-)?\\d+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
+    expect(function() {
+      r.get("/x/:id(\\d+\\d{1,3}\\d+\\d{1,3}\\d+)", function(){});
+    }).toThrowError(/contains nested quantifiers in custom regex group susceptible to catastrophic backtracking/);
+
   });
 
   it("should accept linear non-catastrophic custom patterns without false rejection", function() {
@@ -697,6 +724,23 @@ describe("route parsing", function() {
     var r43 = new routes();
     r43.get("/x/:id([a-z]+[0-9]+)", function(){});
     expect(r43.getRoutes()[0].regex.regexp).toEqual(/^(?:\/x\/([a-z]+[0-9]+))$/);
+
+    // leviroutes-5xyj: the other side of the bounded-atom fix. A REQUIRED separator that cannot
+    // match the neighbours' text anchors the partition and stays accepted (measured 0.4ms on the
+    // same near-miss shape, versus 26.8s for the optional form refused above), and a run of TWO
+    // unbounded atoms through an optional or bounded atom stays accepted - it is the quadratic
+    // case the guard has always allowed.
+    var r44 = new routes();
+    r44.get("/x/:a(\\d+)-:b(\\d+)-:c(\\d+)", function(){});
+    expect(r44.getRoutes()[0].regex.regexp).toEqual(/^(?:\/x\/(\d+)-(\d+)-(\d+))$/);
+
+    var r45 = new routes();
+    r45.get("/x/:a(\\d+)-?:b(\\d+)", function(){});
+    expect(r45.getRoutes()[0].regex.regexp).toEqual(/^(?:\/x\/(\d+)-?(\d+))$/);
+
+    var r46 = new routes();
+    r46.get("/x/:id(\\d+\\d{1,3}\\d+)", function(){});
+    expect(r46.getRoutes()[0].regex.regexp).toEqual(/^(?:\/x\/(\d+\d{1,3}\d+))$/);
 
     // leviroutes-nlag calibration: the small-fixed-count exemption is bounded by the PRODUCT
     // of the repeated branch's maxima, not by their finiteness alone. (\d{1,3}\d{1,3}){4} has a

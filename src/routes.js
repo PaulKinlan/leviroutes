@@ -718,6 +718,29 @@ const routes = function(options) {
       for (var a = 0; a < branch.atoms.length; a++) {
         var atom = branch.atoms[a];
         if (!isUnboundedVariableAtom(atom)) {
+          // leviroutes-5xyj: an atom between two unbounded neighbours only separates them when
+          // it ANCHORS the partition - i.e. when it must consume at least one character that the
+          // neighbours cannot also match. Anything else leaves the boundary free to slide and the
+          // run intact:
+          //  - a NULLABLE atom ('-?', '(?:-)?', '{0,1}') can match empty, so the neighbours are
+          //    effectively adjacent: '/x/:a(\d+)-?:b(\d+)-?:c(\d+)' measured 26.8s on a 4090-char
+          //    near-miss, the same cubic cost as the run of 3 with no separator at all, while the
+          //    reset here split it into three runs of 1 and the guard never fired.
+          //  - a bounded NON-nullable atom whose text overlaps the previous unbounded atom
+          //    ('\d+\d{1,3}\d+') lets the boundary slide through its bounded span - a constant
+          //    factor on the split count, not a separator - so the run continues through it too.
+          // A REQUIRED atom that cannot match the neighbours' text (a literal '-') is a real
+          //    separator: the near-miss fails in O(1) per give-back instead of repartitioning,
+          //    and that is the only shape that resets the run.
+          if (atom.isNullable) {
+            continue;
+          }
+          var prevText = previous !== null ? (previous.matchText || previous.text) : null;
+          var sepText = atom.matchText || atom.text;
+          if (previous !== null &&
+              (prevText === sepText || branchesOverlap(prevText, sepText))) {
+            continue;
+          }
           run = 0;
           previous = null;
           continue;
@@ -820,11 +843,12 @@ const routes = function(options) {
         continue;
       }
       if (c === "(") {
+        var groupOpen = i;
         if (pattern.slice(i + 1, i + 3) === "?:") {
           i += 2;
         }
         stack.push(currentFrame);
-        currentFrame = { branches: [newBranch(i + 1)] };
+        currentFrame = { branches: [newBranch(i + 1)], startIdx: groupOpen };
         continue;
       }
       if (c === "|") {
@@ -1058,6 +1082,14 @@ const routes = function(options) {
         }
         currentBranch.atoms.push({
           text: pattern.slice(atomStart, end + 1),
+          // leviroutes-5xyj: `text` starts at the stale atomStart (a quirk the existing checks
+          // rely on for conservatism), so for a group atom it is a fragment like '\d+)' that is
+          // not a standalone regex - branchesOverlap() then answers 'overlaps' for EVERY pair,
+          // which is the safe answer for run-continuation but would make a real separator ('-'
+          // between two '(\d+)' groups) look like it matches its neighbours. matchText is the
+          // full '(...)' slice, a valid standalone pattern, and only the separator test below
+          // uses it: there the question is 'can I PROVE no overlap', not 'might they overlap'.
+          matchText: pattern.slice(finishedFrame.startIdx !== undefined ? finishedFrame.startIdx : atomStart, end + 1),
           frame: finishedFrame,
           isRepetition: isRep || innerIsRep,
           isNullable: isNull || innerIsNull,
