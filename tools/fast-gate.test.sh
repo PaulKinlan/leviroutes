@@ -169,7 +169,7 @@ diff_out=$(diff <(printf '%s\n' "$expected_suites") <(printf '%s\n' "$out") | he
 out_support=$(run --list --changed spec/support/jasmine.json | grep -v '^fast-gate:\|^witnessed:' | sort)
 diff_out=$(diff <(printf '%s\n' "$expected_suites") <(printf '%s\n' "$out_support") | head -8)
 [ "$out_support" = "$expected_suites" ] && ok "1n2 support change selects exactly the checkout's spec set" \
-  || bad "1n2 support change selects exactly the checkout's spec set" "selection differs from spec/*.spec.mjs:$diff_out"
+  || bad "1n2 support change selects exactly the checkout's spec set" "selection differs from the jasmine-discovered spec set (any depth):$diff_out"
 
 # 2. Unmapped changed file fails loudly
 out=$(run --changed src/unknown.js)
