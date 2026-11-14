@@ -397,31 +397,33 @@ const errors = [];
 // comment, or a copied spec pointer from another row, passed the old includes() check
 // while the exemption was unpinned. The title must be the literal of a real it( call in the
 // spec file, and no two rows may point at the same assertion.
-// leviroutes-23pt: a REAL it( that never RUNS is the same false green. The scan is skip-aware:
-// xit( is never collected (\\b keeps it( from matching inside xit(), and xit itself is dropped),
-// and an it( whose body sits inside an xdescribe(...) block is pending in jasmine and never
-// executed, so it is not collected either. Known limit, documented rather than closed: the
-// guard proves the pointer names a LIVE it(); it cannot prove that assertion is ABOUT the
-// exemption the row describes (an unrelated live pointer is an authoring-review concern).
-const itRe = /\bit\(\s*(["\x27`])((?:\\.|(?!\1)[\s\S])*?)\1/g;
-// Collects the titles of it() calls that actually execute: brace-tracked walk so an it( inside
-// an xdescribe body is recognised as pending (mG) while xit( never matches as it( (mF).
+// Collects the titles of it() calls that actually execute. leviroutes-0nmd: EVERY call body
+// pushes a brace frame (an it body too - otherwise the closing brace of the it body pops the enclosing
+// xdescribe frame and everything after one preceding it() classifies live), and the skip
+// spellings (xit / xdescribe / it.skip / describe.skip, jasmine-pending) are recognised so
+// their bodies are dead windows. Brace frames inside string literals are still counted -
+// an unbalanced brace in a spec string could skew nesting; not seen in the specs of this repo.
+// Known limit, documented rather than closed: the guard proves the pointer names a LIVE it();
+// it cannot prove that assertion is ABOUT the exemption the row describes (an unrelated live
+// pointer is an authoring-review concern).
 const liveItTitles = (source) => {
   const titles = new Set();
-  const callRe = /\b(x?it|x?describe)\(\s*(["\x27`])((?:\\.|(?!\2)[\s\S])*?)\2/g;
-  const stack = []; // 'describe' | 'xdescribe' | 'other' for every open brace
+  const callRe = /\b(x?it|x?describe)((?:\.(?:skip|pending))?)\(\s*(["\x27`])((?:\\.|(?!\3)[\s\S])*?)\3/g;
+  const stack = []; // describe / xdescribe / it / other - one entry per open brace
   const braces = (text) => { for (const ch of text) { if (ch === "{") stack.push("other"); else if (ch === "}") stack.pop(); } };
   let cursor = 0;
   let m;
   while ((m = callRe.exec(source)) !== null) {
     braces(source.slice(cursor, m.index));
     const kind = m[1];
-    const title = m[3];
+    const pending = kind.charAt(0) === "x" || m[2] !== "";
+    const title = m[4];
     const bodyBrace = source.indexOf("{", m.index + m[0].length);
     const ownsBody = bodyBrace !== -1 && callRe.lastIndex <= bodyBrace;
-    if (kind === "it" && !stack.includes("xdescribe")) titles.add(title);
+    if (kind === "it" && !pending && !stack.includes("xdescribe")) titles.add(title);
     if (ownsBody) {
-      if (kind === "describe" || kind === "xdescribe") stack.push(kind);
+      if (kind === "describe" || kind === "xdescribe") stack.push(pending ? "xdescribe" : "describe");
+      else stack.push("it");
       cursor = bodyBrace + 1;
     } else {
       cursor = m.index + m[0].length;
