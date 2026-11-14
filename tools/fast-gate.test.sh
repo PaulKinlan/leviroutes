@@ -174,6 +174,21 @@ rc=$?
 [ "$rc" = 0 ] && ok "3f override selection exits 0" || bad "3f expected exit 0" "got $rc"
 cp "$ROOT/map.bak" "$ROOT/repo/tools/suite-map.tsv"
 
+# 3g. A NESTED spec (any depth under spec/ - jasmine.json discovers **/*[sS]pec.?(m)js) maps to
+# itself: bash patterns cross '/', so the fallback reaches nested suites, and a jasmine-
+# discovered suite the map does not name still runs when it itself changes (leviroutes-6e8d).
+rm -f "$RUN_LOG"
+mkdir -p "$ROOT/repo/spec/nested"
+cat > "$ROOT/repo/spec/nested/fixture.spec.mjs" <<'NESTED'
+describe("nested fixture", function() { it("runs", function() { expect(true).toBe(true); }); });
+NESTED
+out=$(run --changed spec/nested/fixture.spec.mjs)
+rc=$?
+has "$out" "fast-gate: running: spec/nested/fixture.spec.mjs" "3g changed nested spec maps to itself"
+has "$out" "fast-gate: PASS (1 suite(s), 1 changed file(s))" "3g2 nested self-selection PASS line"
+[ "$rc" = 0 ] && ok "3g3 nested spec change exits 0" || bad "3g3 expected exit 0" "got $rc"
+rm -rf "$ROOT/repo/spec/nested"
+
 # 4. Exempt path runs nothing and exits 0
 out=$(run --changed README.md)
 rc=$?
@@ -255,15 +270,18 @@ REAL_MAP="$REAL_ROOT/tools/suite-map.tsv"
 if [ ! -f "$REAL_MAP" ]; then
   bad "9c cannot read the checkout's suite map" "$REAL_MAP"
 else
+  # leviroutes-6e8d: jasmine.json discovers **/*[sS]pec.?(m)js at ANY depth, so the audit must
+  # too - a nested suite invisible to this loop is silent dead coverage for every row-based
+  # selection, exactly the class that bit 2bs9/9qhq at the top level.
   unselected=()
-  for spec_file in "$REAL_ROOT"/spec/*.spec.mjs; do
-    [ -e "$spec_file" ] || continue
-    spec_name="spec/$(basename "$spec_file")"
-    grep -vE '^(#|!|[[:space:]]*$)' "$REAL_MAP" | cut -f2- | tr -s '[:space:]' '\n' | grep -qxF -- "$spec_name" \
-      || unselected+=("$spec_name")
-  done
+  while IFS= read -r spec_file; do
+    [ -n "$spec_file" ] || continue
+    rel=${spec_file#"$REAL_ROOT"/}
+    grep -vE '^(#|!|[[:space:]]*$)' "$REAL_MAP" | cut -f2- | tr -s '[:space:]' '\n' | grep -qxF -- "$rel" \
+      || unselected+=("$rel")
+  done < <(cd "$REAL_ROOT" && find spec -type f \( -name '*[sS]pec.mjs' -o -name '*[sS]pec.js' \) | sort)
   if [ "${#unselected[@]}" -eq 0 ]; then
-    ok "9c every spec file is selected by at least one suite-map row"
+    ok "9c every Jasmine-discovered spec file is selected by at least one suite-map row"
   else
     bad "9c spec files named in no suite-map row" "${unselected[*]}"
   fi

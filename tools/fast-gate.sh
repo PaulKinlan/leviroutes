@@ -102,7 +102,10 @@ suites_for() {
   # live config and must win. Returning the self-map first silently shadowed every spec row
   # in the map (leviroutes-jo7), turning edits to those rows into dead config.
   if [ -n "$rows" ]; then printf '%s\n' $rows; return; fi
-  # Fallback: a changed spec file the map does not name maps to itself
+  # Fallback: a changed spec file the map does not name maps to itself. Bash patterns cross
+  # '/', so this covers NESTED suites at any depth too (jasmine.json discovers them;
+  # leviroutes-6e8d) - pinned by fast-gate.test.sh 3g, and the 9c audit forces every
+  # jasmine-discovered suite (any depth) to be named by at least one row.
   case $f in spec/*.spec.mjs|spec/*.spec.js) echo "$f" ;; esac
 }
 
