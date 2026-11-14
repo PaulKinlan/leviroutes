@@ -393,14 +393,44 @@ import path from "node:path";
 const { pathToFileURL } = await import("node:url");
 const { LOCKFILE_RESOLUTION_EXEMPTIONS } = await import(pathToFileURL(path.resolve("tools/verify-package.mjs")));
 const errors = [];
+// leviroutes-smrm: text presence is not assertion coverage - a title that exists only in a
+// comment, or a copied spec pointer from another row, passed the old includes() check
+// while the exemption was unpinned. The title must be the literal of a real it( call in the
+// spec file, and no two rows may point at the same assertion.
+const itRe = /it\(\s*(["\x27`])((?:\\.|(?!\1)[\s\S])*?)\1/g;
+const seen = new Set();
 for (const row of LOCKFILE_RESOLUTION_EXEMPTIONS) {
   if (!row.name || !row.justification) { errors.push((row.name || "unnamed row") + ": missing name or justification"); }
   if (!row.specFile || !row.specTitle) { errors.push((row.name || "unnamed row") + ": missing specFile or specTitle"); continue; }
   const specPath = path.resolve(row.specFile);
   if (!fs.existsSync(specPath)) { errors.push(row.name + ": spec file does not exist: " + row.specFile); continue; }
-  if (!fs.readFileSync(specPath, "utf8").includes(row.specTitle)) {
-    errors.push(row.name + ": spec assertion not found in " + row.specFile + ": " + row.specTitle);
+  const raw = fs.readFileSync(specPath, "utf8");
+  // Strip comment lines and block-comment spans before the it() scan (leviroutes-smrm case A:
+  // a title inside // text or /* */ must not count). Line-granular and applied to a scan-only
+  // copy, so string literals with https:// can never be executed or corrupted.
+  const codeLines = [];
+  let inBlock = false;
+  for (const line of raw.split("\n")) {
+    let l = line;
+    if (inBlock) { const end = l.indexOf("*/"); if (end === -1) continue; l = l.slice(end + 2); inBlock = false; }
+    const open = l.indexOf("/*");
+    if (open !== -1) { l = l.slice(0, open); inBlock = true; }
+    if (l.trim().startsWith("//")) continue;
+    codeLines.push(l);
   }
+  const src = codeLines.join("\n");
+  itRe.lastIndex = 0;
+  const titles = new Set();
+  let m;
+  while ((m = itRe.exec(src)) !== null) titles.add(m[2]);
+  if (!titles.has(row.specTitle)) {
+    errors.push(row.name + ": spec assertion is not an it() in " + row.specFile + ": " + row.specTitle);
+  }
+  const pointer = row.specFile + "\u0000" + row.specTitle;
+  if (seen.has(pointer)) {
+    errors.push(row.name + ": duplicate spec pointer (copied stale row?): " + row.specFile + " / " + row.specTitle);
+  }
+  seen.add(pointer);
 }
 if (errors.length) { console.log(errors.join("; ")); process.exit(1); }
 ' 2>&1 )
