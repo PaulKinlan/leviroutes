@@ -421,8 +421,8 @@ const errors = [];
 // pushes a brace frame (an it body too - otherwise the closing brace of the it body pops the enclosing
 // xdescribe frame and everything after one preceding it() classifies live), and the skip
 // spellings (xit / xdescribe / it.skip / describe.skip, jasmine-pending) are recognised so
-// their bodies are dead windows. Brace frames inside string literals are still counted -
-// an unbalanced brace in a spec string could skew nesting; not seen in the specs of this repo.
+// their bodies are dead windows. Brace counting is string-aware (leviroutes-5vav): braces
+// inside string literals do not move the frames.
 // Known limit, documented rather than closed: the guard proves the pointer names a LIVE it();
 // it cannot prove that assertion is ABOUT the exemption the row describes (an unrelated live
 // pointer is an authoring-review concern).
@@ -430,7 +430,34 @@ const liveItTitles = (source) => {
   const titles = new Set();
   const callRe = /\b(x?it|x?describe)((?:\.(?:skip|pending))?)\(\s*(["\x27`])((?:\\.|(?!\3)[\s\S])*?)\3/g;
   const stack = []; // describe / xdescribe / it / other - one entry per open brace
-  const braces = (text) => { for (const ch of text) { if (ch === "{") stack.push("other"); else if (ch === "}") stack.pop(); } };
+  // leviroutes-5vav: brace counting is STRING-AWARE. A raw character walk let one } inside a
+  // string literal (e.g. expect(x).toBe("}")) pop the enclosing xdescribe frame, flipping the
+  // rest of the dead block to live - a false green in exactly the direction this guard exists
+  // to stop.
+  // Quotes are tracked with escape handling; braces inside strings do not move the frames.
+  // Per-segment quote state: a quote spanning a call boundary is not seen in these specs
+  // (a template containing it("...") would break the call matcher itself).
+  const netBraces = (text) => {
+    let net = 0;
+    let q = null;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text.charAt(i);
+      if (q !== null) {
+        if (ch === "\\") { i++; continue; }
+        if (ch === q) q = null;
+        continue;
+      }
+      if (ch === "\"" || ch === String.fromCharCode(39) || ch === "`") { q = ch; continue; }
+      if (ch === "{") net++;
+      else if (ch === "}") net--;
+    }
+    return net;
+  };
+  const braces = (text) => {
+    const net = netBraces(text);
+    for (let k = 0; k < net; k++) stack.push("other");
+    for (let k = 0; k < -net && stack.length > 0; k++) stack.pop();
+  };
   let cursor = 0;
   let m;
   while ((m = callRe.exec(source)) !== null) {
