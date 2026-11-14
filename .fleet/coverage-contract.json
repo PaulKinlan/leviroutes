@@ -57,6 +57,7 @@
   "tools/verify-package.mjs": [
     "spec/verifypackage-lifecycle.spec.mjs",
     "spec/verifypackage-registry.spec.mjs",
+    "spec/repohygiene.spec.mjs",
     "tools/fast-gate.test.sh",
     "tools/verify-package.mjs"
   ]
