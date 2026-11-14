@@ -147,6 +147,27 @@ else
   ok "1m no inherited NODE_COMPILE_CACHE (run under tools/full-gate.sh to exercise the clear)"
 fi
 
+# 1n. A change under spec/helpers/ or spec/support/ selects EVERY suite: spec/support/jasmine.json
+# auto-loads helpers/**/*.?(m)js into all specs, and helpers are imported directly too (the two
+# verifypackage specs import npm-env-helper.mjs), so a helper edit can break any of the suites
+# (leviroutes-2bs9). The expected set is DERIVED from the checkout's spec/ directory (the pattern
+# 9c uses), not snapshotted: a future spec added under spec/ must be either selected or red. The
+# first cut hard-coded today's suite list and asserted a count, which recreated the false green
+# on the first new spec AND punished the correct fix until the literal was edited (leviroutes-9qhq).
+# Both extensions the gate's self-map covers (.mjs and .js) are derived; an unmatched glob's
+# literal is dropped, and a .js-only suite stays covered by the same invariant (leviroutes-wchs).
+rm -f "$RUN_LOG"
+REAL_ROOT=$(cd "$HERE/.." && pwd)
+expected_suites=$(cd "$REAL_ROOT" && printf '%s\n' spec/*.spec.mjs spec/*.spec.js | grep -v '\*' | sort -u)
+out=$(run --list --changed spec/helpers/fixture.mjs | grep -v '^fast-gate:\|^witnessed:' | sort)
+diff_out=$(diff <(printf '%s\n' "$expected_suites") <(printf '%s\n' "$out") | head -8)
+[ "$out" = "$expected_suites" ] && ok "1n helper change selects exactly the checkout's spec set" \
+  || bad "1n helper change selects exactly the checkout's spec set" "selection differs from spec/*.spec.(m)js:$diff_out"
+out_support=$(run --list --changed spec/support/jasmine.json | grep -v '^fast-gate:\|^witnessed:' | sort)
+diff_out=$(diff <(printf '%s\n' "$expected_suites") <(printf '%s\n' "$out_support") | head -8)
+[ "$out_support" = "$expected_suites" ] && ok "1n2 support change selects exactly the checkout's spec set" \
+  || bad "1n2 support change selects exactly the checkout's spec set" "selection differs from spec/*.spec.mjs:$diff_out"
+
 # 2. Unmapped changed file fails loudly
 out=$(run --changed src/unknown.js)
 rc=$?
@@ -250,7 +271,6 @@ mv "$ROOT/map.hidden" "$ROOT/repo/tools/suite-map.tsv"
 # row names only runs when it is itself changed, so a src/ change silently skips it
 # (leviroutes-gr4: spec/fixtureisolation.spec.mjs was omitted exactly this way, and only the
 # gate's coverage warning noticed). Reads the real checkout, not the throwaway repo.
-REAL_ROOT=$(cd "$HERE/.." && pwd)
 REAL_MAP="$REAL_ROOT/tools/suite-map.tsv"
 if [ ! -f "$REAL_MAP" ]; then
   bad "9c cannot read the checkout's suite map" "$REAL_MAP"
