@@ -13,6 +13,8 @@ const defaultRoot = path.resolve(here, '..');
 // justification that introduced it, and the exact spec assertion that pins it.
 // tools/fast-gate.test.sh (9h) enforces that the named assertion exists in the checkout, so a
 // new exemption cannot land without its spec coverage and a deleted assertion fails the gate.
+// The guard proves the pointer names a live it() (not xit/xdescribe-pending, not a comment);
+// whether that assertion is ABOUT this exemption stays an authoring-review concern (23pt).
 const LOCAL_RESOLUTION = /^(?:file|link):/;
 export const LOCKFILE_RESOLUTION_EXEMPTIONS = [
   {

@@ -397,7 +397,39 @@ const errors = [];
 // comment, or a copied spec pointer from another row, passed the old includes() check
 // while the exemption was unpinned. The title must be the literal of a real it( call in the
 // spec file, and no two rows may point at the same assertion.
-const itRe = /it\(\s*(["\x27`])((?:\\.|(?!\1)[\s\S])*?)\1/g;
+// leviroutes-23pt: a REAL it( that never RUNS is the same false green. The scan is skip-aware:
+// xit( is never collected (\\b keeps it( from matching inside xit(), and xit itself is dropped),
+// and an it( whose body sits inside an xdescribe(...) block is pending in jasmine and never
+// executed, so it is not collected either. Known limit, documented rather than closed: the
+// guard proves the pointer names a LIVE it(); it cannot prove that assertion is ABOUT the
+// exemption the row describes (an unrelated live pointer is an authoring-review concern).
+const itRe = /\bit\(\s*(["\x27`])((?:\\.|(?!\1)[\s\S])*?)\1/g;
+// Collects the titles of it() calls that actually execute: brace-tracked walk so an it( inside
+// an xdescribe body is recognised as pending (mG) while xit( never matches as it( (mF).
+const liveItTitles = (source) => {
+  const titles = new Set();
+  const callRe = /\b(x?it|x?describe)\(\s*(["\x27`])((?:\\.|(?!\2)[\s\S])*?)\2/g;
+  const stack = []; // 'describe' | 'xdescribe' | 'other' for every open brace
+  const braces = (text) => { for (const ch of text) { if (ch === "{") stack.push("other"); else if (ch === "}") stack.pop(); } };
+  let cursor = 0;
+  let m;
+  while ((m = callRe.exec(source)) !== null) {
+    braces(source.slice(cursor, m.index));
+    const kind = m[1];
+    const title = m[3];
+    const bodyBrace = source.indexOf("{", m.index + m[0].length);
+    const ownsBody = bodyBrace !== -1 && callRe.lastIndex <= bodyBrace;
+    if (kind === "it" && !stack.includes("xdescribe")) titles.add(title);
+    if (ownsBody) {
+      if (kind === "describe" || kind === "xdescribe") stack.push(kind);
+      cursor = bodyBrace + 1;
+    } else {
+      cursor = m.index + m[0].length;
+    }
+  }
+  braces(source.slice(cursor));
+  return titles;
+};
 const seen = new Set();
 for (const row of LOCKFILE_RESOLUTION_EXEMPTIONS) {
   if (!row.name || !row.justification) { errors.push((row.name || "unnamed row") + ": missing name or justification"); }
@@ -419,10 +451,7 @@ for (const row of LOCKFILE_RESOLUTION_EXEMPTIONS) {
     codeLines.push(l);
   }
   const src = codeLines.join("\n");
-  itRe.lastIndex = 0;
-  const titles = new Set();
-  let m;
-  while ((m = itRe.exec(src)) !== null) titles.add(m[2]);
+  const titles = liveItTitles(src);
   if (!titles.has(row.specTitle)) {
     errors.push(row.name + ": spec assertion is not an it() in " + row.specFile + ": " + row.specTitle);
   }
